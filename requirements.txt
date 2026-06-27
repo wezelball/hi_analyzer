@@ -1,0 +1,7 @@
+# HI Analyzer — dependencies
+
+# Core (required)
+astropy>=6.0
+numpy>=1.26
+matplotlib>=3.8
+scipy>=1.12          # median filter for RFI flagging, baseline fitting
