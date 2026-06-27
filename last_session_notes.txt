@@ -1,0 +1,282 @@
+hi_analyzer — Project Session Notes
+=====================================
+Last updated: 2026-06-27
+GitHub repo: https://github.com/wezelball/hi_analyzer
+Observer: David Cohen (wezelball)
+Site name: TwoMice_RA
+Location: Lake Monticello, Virginia, USA
+  lat=37.8°N  long=-77.9°  amsl=116m
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+IMPORTANT NOTE FOR NEW CLAUDE SESSIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Claude has NO memory between sessions. Each session starts
+blank. Paste this file at the start of each new session so
+Claude has full context immediately. The repo URL gives Claude
+access to the current codebase via web_fetch.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+HARDWARE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Primary antenna:
+  Nooelec parabolic wire grid dish (originally for GOES satellites)
+  Dimensions: 100cm wide x 60cm high
+  Estimated gain at 1420 MHz: ~20 dBi
+  Estimated HPBW: ~15° azimuth, ~25° elevation (asymmetric beam)
+  Aperture efficiency: ~60% (wire grid)
+
+Current receiver chain:
+  RTL-SDR (model not specified in notes)
+  Gain setting: 49.6 dB (set in ezCol software)
+  Frequency range used: 1419.2 – 1421.61 MHz (256 bins, ~9.4 kHz/bin)
+
+Calibration / switching:
+  Dicke-style noise switching radiometer
+  USB relay switches LNA between sky input and internal 50-ohm
+  resistor (reference load). Every other spectral record is a
+  reference measurement. Sky/reference ratio removes gain drift
+  and receiver noise variations.
+  Reference rows are flagged with trailing "R" in data files.
+
+Mount (current):
+  Az=180° (south), El=90° (zenith) for Cyg A drift scans
+  Az-El mount available (LX200 OTA removed, stepper motors +
+  encoders fitted, Python GUI written but coordinate calculation
+  has known bugs — not yet resolved)
+  Large pan-tilt mount also available (previously used for heavy
+  camera)
+
+Data acquisition software:
+  ezCol (ezRA suite) version ezCol250313a.py
+  Produces .txt files in the format described below.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DATA FILE FORMAT  (.txt, ezRA/ezCol output)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Line 1:  "from ezCol250313a.py"
+Line 2:  lat <deg> long <deg> amsl <m> name <sitename>
+Line 3:  freqMin <MHz> freqMax <MHz> freqBinQty <N>
+Line 4:  azDeg <deg> elDeg <deg>
+Line 5:  "# times are in UTC"
+Line 6:  "# gain <dB>"
+Lines 7+: Data rows, alternating sky / reference
+
+Data row format:
+  <ISO8601 UTC timestamp>  <256 space-separated float values>  [R]
+  Trailing "R" = reference (50-ohm load) measurement
+  No trailing "R" = sky measurement
+  Values are raw power spectral density (relative units)
+  Sky/reference ratio gives calibrated antenna temperature proxy.
+
+File naming convention:
+  WGA_YYMMDD_HH.txt
+  WGA = site prefix (TwoMice_RA → initials/abbrev)
+  YYMMDD = date
+  HH = approximate start hour (UTC)
+  Example: WGA_260627_04.txt = 2026-06-27, starting ~04:00 UTC
+
+Typical file duration: ~6 hours, ~1088 lines (544 sky + 544 ref)
+Integration cadence: sky/ref pair every ~20 seconds
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CURRENT OBSERVATION PROGRAMME
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Primary target: Cygnus A (3C 405) region
+  Pointing: Az=180°, El=90° (zenith drift scan)
+  Cyg A position: RA ~19h59m, Dec ~+40.7°
+  At lat 37.8°N, Cyg A transits near zenith — good match.
+
+Three-night stacking dataset (same pointing, same frequency):
+  WGA_260624_04.txt  — 2026-06-24, El=90°
+  WGA_260625_04.txt  — 2026-06-25, El=90°
+  WGA_260627_04.txt  — 2026-06-27, El=90°  (today's duplicate)
+
+Additional file (different elevation strip, NOT in stack):
+  WGA_260626_00.txt  — 2026-06-26, El=65°, 1448 lines
+  This is a different declination and must NOT be mixed with
+  the El=90° stack.
+
+Science result so far:
+  Three-night sidereal stack shows two distinct HI velocity
+  components in the Cygnus region:
+    Component 1 (bright):  LSR velocity ~ -27 km/s
+    Component 2 (faint):   LSR velocity ~ -105 km/s
+  Both confirmed independently by ezRA's own plots.
+  The two components likely trace different spiral arm features
+  along the Cygnus line of sight (possibly local/Orion arm and
+  Perseus arm respectively, but not yet confirmed).
+
+Typical stack command:
+  python main.py stack-waterfall \
+    data/WGA_260624_04.txt \
+    data/WGA_260625_04.txt \
+    data/WGA_260627_04.txt \
+    --ra-bin-deg 1.0
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CODEBASE ARCHITECTURE  (repo: wezelball/hi_analyzer)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+hi_analyzer/
+  main.py              CLI entry point — all commands dispatched here
+  requirements.txt     Python dependencies
+  .gitignore           Excludes *.txt, *.csv, __pycache__, etc.
+  README.md
+  core/
+    reader.py          Parses ezCol .txt files → ObsFile objects
+                       load_file(), load_files(), group_by_elevation()
+    calibration.py     Sky/ref Dicke calibration, RFI flagging,
+                       stacking, sidereal alignment
+                       calibrate(), flag_rfi(), flag_persistent_rfi(),
+                       stack_spectra(), stack_obs_files(),
+                       sidereal_stack(), estimate_tsys()
+    spectrum.py        Frequency → LSR velocity conversion,
+                       RA/Dec assignment, array helpers
+                       freq_to_velocity(), assign_radec(),
+                       records_to_arrays(), HI_REST_FREQ_MHZ,
+                       hi_channel_index()
+  ui/
+    plots.py           Matplotlib plotting functions
+                       plot_spectrum(), plot_waterfall(),
+                       plot_stacked_comparison(), plot_tsys()
+    skymap.py          2D sky map builder (SkyMap class)
+  data/                Observation .txt files (gitignored)
+  tests/               Test suite
+
+CLI commands (python main.py <command> <files> [options]):
+  inspect          Print header + statistics, no plots
+  spectrum         Calibrated spectrum plot per file
+  waterfall        Time vs velocity waterfall per file
+  stack            Stack multiple files grouped by elevation,
+                   compare elevation strips
+  stack-waterfall  Sidereal-stack by RA, display as waterfall
+                   (THE MAIN WORKING COMMAND — most developed)
+  skymap           2D RA/Dec sky map from all files
+
+Key CLI options:
+  --vel-min / --vel-max   Velocity window in km/s (default -200/+200)
+  --ra-bin-deg            RA bin width for sidereal stacking (deg)
+                          Use 1.0 for 3-night stacks
+  --subtract-baseline     Enable polynomial baseline subtraction
+                          (experimental, off by default)
+  --sigma                 RFI flagging threshold (default 4.0)
+  --save <path>           Save plot to file instead of displaying
+  --no-flag               Disable RFI flagging
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STACK-WATERFALL PIPELINE DETAIL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+This is the most developed and most recently worked-on command.
+The processing steps in cmd_stack_waterfall() are:
+
+1.  Group input files by elevation (group_by_elevation)
+2.  For each elevation group, call sidereal_stack() to align
+    spectra by RA and average — SNR improves as sqrt(N_nights)
+3.  Subtract per-row median to remove DC offset and bandpass slope
+4.  Flag DC-offset RFI columns (column mean outliers, MAD-based)
+5.  Flag high-variance RFI columns (erratic columns vs smooth sky)
+6.  Interpolate flagged columns from neighbours (column-wise)
+7.  Two-pass interpolation for isolated bad pixels (row then column)
+8.  Replace any remaining NaN with overall median
+9.  3x3 median filter (scipy.ndimage) to remove isolated pixel spikes
+10. Set color scale: vmin=-2*noise_sigma, vmax=p99
+    Noise estimated from IQR of display values (robust, ignores HI)
+11. Hard clip display to [vmin, vmax]
+12. Render with imshow, inferno colormap, dark theme (#0D1117)
+13. Mark flagged channels with subtle vertical lines
+14. Blue dashed line at v=0 (HI rest velocity)
+
+The most recent work (session at car dealership, 2026-06-26) was
+improving noise handling and artifact suppression in steps 3-11.
+Result: three-night stack is clean with good SNR, both velocity
+components clearly visible.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+KNOWN ISSUES / TO-DO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- Coordinate calculation bugs in the az-el mount Python GUI
+  (spherical trig / quadrant issues). Not yet fixed. Astropy
+  was suggested as the clean solution — use SkyCoord + AltAz
+  frame transforms rather than manual trig.
+
+- stack-waterfall and other commands not yet fully tested with
+  the El=65° file (WGA_260626_00.txt). Different declination
+  strip should work but has not been run through the full pipeline.
+
+- skymap command exists but may be less tested than stack-waterfall.
+
+- last_session_notes.txt is in the repo temporarily and should be
+  removed when the package is finalized.
+
+- No automated tests have been verified as passing — test suite
+  exists in tests/ but status unknown.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FUTURE HARDWARE PROJECTS (discussed, not started)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. 12-foot mesh dish (already owned, free acquisition)
+   - VE4MA feed built and sitting in garage (coffee can design
+     with adjustable choke ring, scaled to 1420 MHz, designed
+     by Dr. Paul Shuch / SETI League)
+   - Mount is the main unsolved problem — dish is too large/heavy
+     for existing mounts
+   - Best plan: dedicated concrete pad in yard with southern
+     exposure, purpose-built mount, elevation-only for drift scan
+   - Optical telescope shed on concrete pier is in the ideal
+     location — shed is removable (3x 3/8" SS threaded rods in
+     12" pier) and used only in winter. Summer = radio astronomy.
+     BUT: finding a good alternative site for the dish pad is
+     still needed (trees obstruct much of the property).
+   - Estimated gain at 1420 MHz: ~35 dBi, HPBW ~2.5°
+
+2. Correlation interferometer (sidelined for now)
+   - Two-element, correlation (not adding) type
+   - Best frequency: 1420 MHz (existing hardware, protected band)
+   - Hardware path: two RTL-SDR Blog V3 dongles with clock
+     sharing via CLK IN/OUT pads (no crystal removal needed on V3)
+   - Key software: effex (github.com/evanmayer/effex)
+   - Key reference: CCERA Memo 0008 (Marcus Leech)
+   - Community: groups.google.com/g/amateur-radio-interferometry
+   - Observer has prior analog interferometer experience (with mentor)
+   - Sidelined due to complexity; may return to later
+
+3. Az-El mount improvement
+   - Fix coordinate calculation bugs using Astropy SkyCoord
+   - Would enable pointed observations with the smaller dish
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RADIO ASTRONOMY CONTEXT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+HI rest frequency: 1420.405 MHz (21cm hydrogen line)
+Observation mode: drift scan (fixed az/el, sky drifts through beam)
+Calibration method: Dicke switching (sky vs 50-ohm reference)
+Velocity convention: LSR (Local Standard of Rest)
+Bright calibrator sources:
+  Cas A: ~2700 Jy at 1420 MHz
+  Cyg A: ~1600 Jy at 1420 MHz  ← current target
+  Tau A: ~900 Jy at 1420 MHz
+  Vir A: ~210 Jy at 1420 MHz
+
+Sidereal stacking rationale:
+  Each night the sky drifts through the beam at the same sidereal
+  rate. Aligning records by RA (sidereal time) and averaging N nights
+  improves SNR by sqrt(N). Three nights → sqrt(3) ≈ 1.73x improvement.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+HOW TO START A NEW SESSION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. Paste this file into the chat.
+2. Give Claude the repo URL: https://github.com/wezelball/hi_analyzer
+3. Claude can fetch main.py and other files directly from GitHub
+   to get the current code state.
+4. Update this file at the end of each session with any new
+   findings, decisions, or changes to the to-do list.
