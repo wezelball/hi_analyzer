@@ -340,8 +340,33 @@ def cmd_stack_waterfall(obs_files, args) -> None:
         # --- Prepare display array ---
         display = stacked_data[:, in_win].copy()
 
-        # Step 1: Subtract per-row median first to remove DC offset and
-        # bandpass slope before any flagging decisions.
+        # Step 1: Bandpass correction + DC offset removal.
+        # Fit a low-order polynomial to the edge channels of the median
+        # spectrum (which contains no HI signal), then divide every row
+        # by that smooth template to flatten the bandpass slope before
+        # any further processing.
+        n_chan = display.shape[1]
+        n_edge = max(4, int(n_chan * 0.15))
+        x = np.arange(n_chan, dtype=float)
+
+        # Median spectrum across all RA rows — robust against RFI
+        median_spec = np.nanmedian(display, axis=0)
+
+        # Anchor polynomial fit to edge channels only (no HI there)
+        fit_mask = np.zeros(n_chan, dtype=bool)
+        fit_mask[:n_edge] = True
+        fit_mask[-n_edge:] = True
+        valid = fit_mask & np.isfinite(median_spec)
+
+        if valid.sum() >= 4:
+            coeffs = np.polyfit(x[valid], median_spec[valid], 3)
+            bandpass = np.polyval(coeffs, x)
+            bandpass_norm = bandpass / np.mean(bandpass)
+            bandpass_norm = np.where(np.abs(bandpass_norm) < 0.01,
+                                     1.0, bandpass_norm)
+            display = display / bandpass_norm[np.newaxis, :]
+
+        # Now subtract per-row median to remove residual DC offset
         row_medians = np.nanmedian(display, axis=1, keepdims=True)
         display -= row_medians
 

@@ -106,6 +106,54 @@ def _subtract_baseline(spectra: np.ndarray, poly_order: int = 5,
 
     return result
 
+def bandpass_correct(spectra: np.ndarray,
+                     edge_frac: float = 0.15) -> np.ndarray:
+    """
+    Remove residual bandpass slope by dividing each spectrum by a
+    normalized median bandpass template built from the edge channels.
+
+    This is the radio equivalent of flat-fielding in optical imaging.
+    The edge channels contain no HI signal, so their shape reflects
+    only the receiver bandpass. We fit a low-order polynomial to the
+    median spectrum using only those edge channels, then divide every
+    spectrum by that smooth template.
+
+    Parameters
+    ----------
+    spectra   : shape (n_spectra, n_channels) — calibrated sky/ref ratios
+    edge_frac : fraction of channels at each edge used to anchor the fit
+
+    Returns
+    -------
+    Corrected spectra, same shape as input.
+    """
+    n_spec, n_chan = spectra.shape
+    n_edge = max(4, int(n_chan * edge_frac))
+    x = np.arange(n_chan, dtype=float)
+
+    # Median spectrum across all integrations — robust against RFI
+    median_spec = np.nanmedian(spectra, axis=0)
+
+    # Fit a polynomial using only edge channels (no HI signal there)
+    fit_mask = np.zeros(n_chan, dtype=bool)
+    fit_mask[:n_edge] = True
+    fit_mask[-n_edge:] = True
+    valid = fit_mask & np.isfinite(median_spec)
+
+    if valid.sum() < 4:
+        return spectra  # not enough points, return unchanged
+
+    coeffs = np.polyfit(x[valid], median_spec[valid], 3)
+    bandpass = np.polyval(coeffs, x)
+
+    # Normalize so we divide by shape, not level
+    bandpass_norm = bandpass / np.mean(bandpass)
+
+    # Guard against near-zero values
+    bandpass_norm = np.where(np.abs(bandpass_norm) < 0.01, 1.0, bandpass_norm)
+
+    return spectra / bandpass_norm[np.newaxis, :]
+
 
 # ---------------------------------------------------------------------------
 # RFI flagging
@@ -241,6 +289,7 @@ def stack_obs_files(obs_files: list,
 
     for obs in obs_files:
         cal = calibrate(obs, subtract_baseline=subtract_baseline)
+        cal = bandpass_correct(cal)          # <-- add this line
         if flag:
             cal = flag_rfi(cal, sigma_threshold=sigma_threshold)
             cal = flag_persistent_rfi(cal)
