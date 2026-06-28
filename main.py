@@ -87,6 +87,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="RFI flagging threshold (sigma)")
     p.add_argument("--poly-order", type=int, default=5,
                    help="Polynomial order for baseline subtraction")
+    p.add_argument("--bandpass-correct", action="store_true",
+               help="Apply bandpass correction to remove receiver gain slope "
+                    "(radio equivalent of flat-fielding)")
 
     # Output
     p.add_argument("--save", type=str, default=None,
@@ -340,36 +343,42 @@ def cmd_stack_waterfall(obs_files, args) -> None:
         # --- Prepare display array ---
         display = stacked_data[:, in_win].copy()
 
-        # Step 1: Bandpass correction + DC offset removal.
+        # Step 1: Bandpass correction + optional DC offset removal.
         # Fit a low-order polynomial to the edge channels of the median
         # spectrum (which contains no HI signal), then divide every row
         # by that smooth template to flatten the bandpass slope before
         # any further processing.
-        n_chan = display.shape[1]
-        n_edge = max(4, int(n_chan * 0.15))
-        x = np.arange(n_chan, dtype=float)
+        if args.bandpass_correct:
+            n_chan = display.shape[1]
+            n_edge = max(4, int(n_chan * 0.15))
+            x = np.arange(n_chan, dtype=float)
 
-        # Median spectrum across all RA rows — robust against RFI
-        median_spec = np.nanmedian(display, axis=0)
+            median_spec = np.nanmedian(display, axis=0)
 
-        # Anchor polynomial fit to edge channels only (no HI there)
-        fit_mask = np.zeros(n_chan, dtype=bool)
-        fit_mask[:n_edge] = True
-        fit_mask[-n_edge:] = True
-        valid = fit_mask & np.isfinite(median_spec)
+            # Anchor fit to edges only, explicitly excluding HI region
+            fit_mask = np.zeros(n_chan, dtype=bool)
+            fit_mask[:] = True
+            fit_mask[:n_edge] = False
+            fit_mask[-n_edge:] = False
+            # Also exclude the central third where HI signal lives
+            hi_start = n_chan // 3
+            hi_end   = 2 * n_chan // 3
+            fit_mask[hi_start:hi_end] = False
 
-        if valid.sum() >= 4:
-            coeffs = np.polyfit(x[valid], median_spec[valid], 3)
-            bandpass = np.polyval(coeffs, x)
-            bandpass_norm = bandpass / np.mean(bandpass)
-            bandpass_norm = np.where(np.abs(bandpass_norm) < 0.01,
-                                     1.0, bandpass_norm)
-            display = display / bandpass_norm[np.newaxis, :]
+            valid = fit_mask & np.isfinite(median_spec)
 
-        # Now subtract per-row median to remove residual DC offset
+            if valid.sum() >= 2:
+                coeffs = np.polyfit(x[valid], median_spec[valid], 2)
+                bandpass = np.polyval(coeffs, x)
+                bandpass_norm = bandpass / np.mean(bandpass)
+                bandpass_norm = np.where(np.abs(bandpass_norm) < 0.01,
+                                         1.0, bandpass_norm)
+                display = display / bandpass_norm[np.newaxis, :]
+
+        # Always subtract per-row median to remove DC offset
         row_medians = np.nanmedian(display, axis=1, keepdims=True)
         display -= row_medians
-
+ 
         # Step 2: Flag DC-offset RFI columns FIRST (before variance flagging
         # removes channels and causes nanmean to warn on empty slices)
         col_mean    = np.nanmean(display, axis=0)
