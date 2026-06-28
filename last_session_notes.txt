@@ -28,7 +28,7 @@ Primary antenna:
   Aperture efficiency: ~60% (wire grid)
 
 Current receiver chain:
-  RTL-SDR (model not specified in notes)
+  RTL-SDR.COM v.3
   Gain setting: 49.6 dB (set in ezCol software)
   Frequency range used: 1419.2 – 1421.61 MHz (256 bins, ~9.4 kHz/bin)
 
