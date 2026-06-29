@@ -343,11 +343,7 @@ def cmd_stack_waterfall(obs_files, args) -> None:
         # --- Prepare display array ---
         display = stacked_data[:, in_win].copy()
 
-        # Step 1: Bandpass correction + optional DC offset removal.
-        # Fit a low-order polynomial to the edge channels of the median
-        # spectrum (which contains no HI signal), then divide every row
-        # by that smooth template to flatten the bandpass slope before
-        # any further processing.
+        # Step 1: Bandpass correction + DC offset removal.
         if args.bandpass_correct:
             n_chan = display.shape[1]
             n_edge = max(4, int(n_chan * 0.15))
@@ -355,25 +351,22 @@ def cmd_stack_waterfall(obs_files, args) -> None:
 
             median_spec = np.nanmedian(display, axis=0)
 
-            # Anchor fit to edges only, explicitly excluding HI region
             fit_mask = np.zeros(n_chan, dtype=bool)
             fit_mask[:] = True
             fit_mask[:n_edge] = False
             fit_mask[-n_edge:] = False
-            # Also exclude the central third where HI signal lives
             hi_start = n_chan // 3
             hi_end   = 2 * n_chan // 3
             fit_mask[hi_start:hi_end] = False
 
-            valid = fit_mask & np.isfinite(median_spec)
+            valid = fit_mask & np.isfinite(median_spec) & (median_spec > 0.1)
 
             if valid.sum() >= 2:
                 coeffs = np.polyfit(x[valid], median_spec[valid], 2)
                 bandpass = np.polyval(coeffs, x)
-                bandpass_norm = bandpass / np.mean(bandpass)
-                bandpass_norm = np.where(np.abs(bandpass_norm) < 0.01,
-                                         1.0, bandpass_norm)
-                display = display / bandpass_norm[np.newaxis, :]
+                # Remove only the shape, not the DC level
+                bandpass_ac = bandpass - np.mean(bandpass)
+                display = display - bandpass_ac[np.newaxis, :]
 
         # Always subtract per-row median to remove DC offset
         row_medians = np.nanmedian(display, axis=1, keepdims=True)
@@ -450,15 +443,27 @@ def cmd_stack_waterfall(obs_files, args) -> None:
         # Estimate noise as the MAD of the central 50% of values —
         # this ignores both the deep negative outliers (RFI artifacts)
         # and the bright HI signal peaks.
-        p25  = float(np.nanpercentile(display, 25))
-        p75  = float(np.nanpercentile(display, 75))
-        p99  = float(np.nanpercentile(display, 99))
-        noise_sigma = (p75 - p25) / 1.35   # robust sigma estimate
+        
+        # Exclude edge channels from colorscale calculation —
+        # they may have uncorrected rolloff artifacts
+        n_edge_disp = max(4, int(display.shape[1] * 0.15))
+        interior = display[:, n_edge_disp:-n_edge_disp]
 
+        p25  = float(np.nanpercentile(interior, 25))
+        p75  = float(np.nanpercentile(interior, 75))
+        p99  = float(np.nanpercentile(interior, 99))
+        noise_sigma = (p75 - p25) / 1.35
         # vmin: just below the noise floor (show a little negative room)
         # vmax: at p99 so the brightest HI signal is fully visible
         vmin = -2.0 * noise_sigma
         vmax = p99
+
+        print(f"  Display shape: {display.shape}")
+        print(f"  Display min: {np.nanmin(display):.5f}  max: {np.nanmax(display):.5f}")
+        print(f"  Interior min: {np.nanmin(interior):.5f}  max: {np.nanmax(interior):.5f}")
+        print(f"  p25: {p25:.5f}  p75: {p75:.5f}  p99: {p99:.5f}")
+        print(f"  noise_sigma: {noise_sigma:.5f}")
+        print(f"  vmin: {vmin:.5f}  vmax: {vmax:.5f}")
 
         # Hard clip at these limits so outliers don't affect rendering
         display = np.clip(display, vmin, vmax)
