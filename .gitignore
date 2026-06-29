@@ -218,4 +218,4 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Site-specific observation data files
-data/*.txt
+#data/*.txt
