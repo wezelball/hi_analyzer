@@ -219,3 +219,4 @@ __marimo__/
 
 # Site-specific observation data files
 #data/*.txt
+!last_session_notes.txt

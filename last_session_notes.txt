@@ -1,6 +1,6 @@
 hi_analyzer — Project Session Notes
 =====================================
-Last updated: 2026-06-27
+Last updated: 2026-06-28
 GitHub repo: https://github.com/wezelball/hi_analyzer
 Observer: David Cohen (wezelball)
 Site name: TwoMice_RA
@@ -28,7 +28,7 @@ Primary antenna:
   Aperture efficiency: ~60% (wire grid)
 
 Current receiver chain:
-  RTL-SDR.COM v.3
+  RTL-SDR.COM V3
   Gain setting: 49.6 dB (set in ezCol software)
   Frequency range used: 1419.2 – 1421.61 MHz (256 bins, ~9.4 kHz/bin)
 
@@ -40,7 +40,11 @@ Calibration / switching:
   and receiver noise variations.
   Reference rows are flagged with trailing "R" in data files.
 
-Mount (current):
+
+Mount (current:)
+  Large camera tripod, no motors, manually adjusted.
+
+Mount (future):
   Az=180° (south), El=90° (zenith) for Cyg A drift scans
   Az-El mount available (LX200 OTA removed, stepper motors +
   encoders fitted, Python GUI written but coordinate calculation
@@ -95,26 +99,34 @@ Three-night stacking dataset (same pointing, same frequency):
   WGA_260625_04.txt  — 2026-06-25, El=90°
   WGA_260627_04.txt  — 2026-06-27, El=90°  (today's duplicate)
 
-Additional file (different elevation strip, NOT in stack):
+El=65° dataset (different declination strip, separate stack):
   WGA_260626_00.txt  — 2026-06-26, El=65°, 1448 lines
-  This is a different declination and must NOT be mixed with
-  the El=90° stack.
+  WGA_260628_01.txt  — 2026-06-28, El=65°, 1448 lines
+                       (started 1 hour later than 260626; RA
+                        alignment handles the offset automatically)
+  These must NOT be mixed with the El=90° stack.
 
 Science result so far:
-  Three-night sidereal stack shows two distinct HI velocity
-  components in the Cygnus region:
+  Three-night sidereal stack (El=90°) shows two distinct HI
+  velocity components in the Cygnus region:
     Component 1 (bright):  LSR velocity ~ -27 km/s
     Component 2 (faint):   LSR velocity ~ -105 km/s
   Both confirmed independently by ezRA's own plots.
   The two components likely trace different spiral arm features
   along the Cygnus line of sight (possibly local/Orion arm and
   Perseus arm respectively, but not yet confirmed).
+  El=65° two-night stack also working well with good SNR.
 
-Typical stack command:
+Typical stack commands:
   python main.py stack-waterfall \
     data/WGA_260624_04.txt \
     data/WGA_260625_04.txt \
     data/WGA_260627_04.txt \
+    --ra-bin-deg 1.0
+
+  python main.py stack-waterfall \
+    data/WGA_260626_00.txt \
+    data/WGA_260628_01.txt \
     --ra-bin-deg 1.0
 
 
@@ -162,7 +174,10 @@ Key CLI options:
   --ra-bin-deg            RA bin width for sidereal stacking (deg)
                           Use 1.0 for 3-night stacks
   --subtract-baseline     Enable polynomial baseline subtraction
-                          (experimental, off by default)
+                          (experimental, largely superseded by
+                          --bandpass-correct)
+  --bandpass-correct      Enable bandpass gradient correction in
+                          stack-waterfall (see pipeline detail below)
   --sigma                 RFI flagging threshold (default 4.0)
   --save <path>           Save plot to file instead of displaying
   --no-flag               Disable RFI flagging
@@ -177,24 +192,48 @@ The processing steps in cmd_stack_waterfall() are:
 1.  Group input files by elevation (group_by_elevation)
 2.  For each elevation group, call sidereal_stack() to align
     spectra by RA and average — SNR improves as sqrt(N_nights)
-3.  Subtract per-row median to remove DC offset and bandpass slope
-4.  Flag DC-offset RFI columns (column mean outliers, MAD-based)
-5.  Flag high-variance RFI columns (erratic columns vs smooth sky)
-6.  Interpolate flagged columns from neighbours (column-wise)
-7.  Two-pass interpolation for isolated bad pixels (row then column)
-8.  Replace any remaining NaN with overall median
-9.  3x3 median filter (scipy.ndimage) to remove isolated pixel spikes
-10. Set color scale: vmin=-2*noise_sigma, vmax=p99
-    Noise estimated from IQR of display values (robust, ignores HI)
-11. Hard clip display to [vmin, vmax]
-12. Render with imshow, inferno colormap, dark theme (#0D1117)
-13. Mark flagged channels with subtle vertical lines
-14. Blue dashed line at v=0 (HI rest velocity)
+3.  OPTIONAL bandpass correction (--bandpass-correct flag):
+    - Compute median spectrum across all RA rows
+    - Fit degree-2 polynomial to shoulder channels only:
+        * Exclude outer 15% of band (SDR filter rolloff)
+        * Exclude central third of band (HI signal region)
+        * Exclude zero-valued channels (RFI-flagged, filled with 0)
+          using: valid = fit_mask & np.isfinite(median_spec) & (median_spec > 0.1)
+    - Subtract only the AC component of the fit (bandpass - mean)
+      so the DC level (~0.595) is preserved for Step 4
+    IMPORTANT LESSONS LEARNED (2026-06-28):
+    - Division not subtraction: raw data is near 0.595, not near 1.0,
+      so dividing by a normalized template doesn't work
+    - Must subtract AC component only (bandpass - mean(bandpass))
+      to avoid disturbing the DC level that Step 4 relies on
+    - Zero-valued channels (RFI-flagged) corrupt the polynomial fit
+      and must be explicitly excluded with median_spec > 0.1
+    - Edge channels have SDR filter rolloff and must be excluded
+      from the fit anchor points
+4.  Subtract per-row median to remove DC offset (~0.595 level)
+5.  Flag DC-offset RFI columns (column mean outliers, MAD-based)
+6.  Flag high-variance RFI columns (erratic columns vs smooth sky)
+7.  Interpolate flagged columns from neighbours (column-wise)
+8.  Two-pass interpolation for isolated bad pixels (row then column)
+9.  Replace any remaining NaN with overall median
+10. 3x3 median filter (scipy.ndimage) to remove isolated pixel spikes
+11. Set color scale: vmin=-2*noise_sigma, vmax=p99
+    Noise estimated from IQR of interior channels only (excludes
+    outer 15% to avoid edge artifacts affecting colorscale)
+12. Hard clip display to [vmin, vmax]
+13. Render with imshow, inferno colormap, dark theme (#0D1117)
+14. Mark flagged channels with subtle vertical lines
+15. Blue dashed line at v=0 (HI rest velocity)
 
-The most recent work (session at car dealership, 2026-06-26) was
-improving noise handling and artifact suppression in steps 3-11.
-Result: three-night stack is clean with good SNR, both velocity
-components clearly visible.
+Session 2026-06-28 work:
+  - Added --bandpass-correct flag and full implementation
+  - Extensive debugging of bandpass correction approach
+  - Key finding: raw calibrated values sit at ~0.595 DC level,
+    HI signal is only ~0.017 above that — tiny dynamic range
+  - Key finding: zeroed RFI channels corrupt polynomial fit;
+    must use (median_spec > 0.1) guard in valid mask
+  - Final working approach: AC subtraction on shoulder channels
+    with zero exclusion. Works on both El=90° and El=65° stacks.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -205,9 +244,8 @@ KNOWN ISSUES / TO-DO
   was suggested as the clean solution — use SkyCoord + AltAz
   frame transforms rather than manual trig.
 
-- stack-waterfall and other commands not yet fully tested with
-  the El=65° file (WGA_260626_00.txt). Different declination
-  strip should work but has not been run through the full pipeline.
+- --subtract-baseline has little practical effect and is largely
+  superseded by --bandpass-correct. Consider removing or fixing.
 
 - skymap command exists but may be less tested than stack-waterfall.
 
@@ -216,6 +254,10 @@ KNOWN ISSUES / TO-DO
 
 - No automated tests have been verified as passing — test suite
   exists in tests/ but status unknown.
+
+- --bandpass-correct works well on both datasets but the threshold
+  of 0.1 for excluding zero-valued channels is hardcoded. Could
+  be made adaptive in future.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
