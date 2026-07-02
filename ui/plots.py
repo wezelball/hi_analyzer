@@ -118,6 +118,7 @@ def plot_spectrum(
             )
 
     ax.set_xlabel(xlabel, color=TEXT_COLOR, fontsize=10)
+    # Negative velocities on the left side of the plot
     ax.set_ylabel(ylabel, color=TEXT_COLOR, fontsize=10)
     ax.set_title(title, color=TEXT_COLOR, fontsize=11, fontweight="bold")
     ax.legend(fontsize=8, framealpha=0.3, labelcolor=TEXT_COLOR,
@@ -137,6 +138,7 @@ def plot_spectrum(
         ax2.tick_params(colors=TEXT_COLOR)
 
     plt.tight_layout()
+    ax.set_xlim(vel_kms[-1], vel_kms[0])
 
     if save_path:
         fig.savefig(save_path, dpi=150, facecolor=DARK_BG, bbox_inches="tight")
@@ -192,7 +194,7 @@ def plot_waterfall(
         spectra,
         origin="upper",
         aspect="auto",
-        extent=[v0, v1, t1, t0],
+        extent=[v1, v0, t1, t0],
         vmin=vmin, vmax=vmax,
         cmap=cmap,
         interpolation="nearest",
@@ -255,6 +257,8 @@ def plot_stacked_comparison(
     ax.axvline(x=0, color=WARN_COLOR, linewidth=1.0, linestyle="--",
                alpha=0.7, label="HI rest (v=0)")
     ax.set_xlabel("LSR Velocity (km/s)", color=TEXT_COLOR, fontsize=10)
+    # Negative velocities on the left side of the plot
+    ax.invert_xaxis()
     ax.set_ylabel("Calibrated Power (P_ant / P_ref)", color=TEXT_COLOR, fontsize=10)
     ax.set_title(title, color=TEXT_COLOR, fontsize=11, fontweight="bold")
     ax.legend(fontsize=8, framealpha=0.3, labelcolor=TEXT_COLOR,

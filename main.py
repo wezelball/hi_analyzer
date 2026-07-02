@@ -477,12 +477,12 @@ def cmd_stack_waterfall(obs_files, args) -> None:
 
         fig, ax = plt.subplots(figsize=(12, 8), facecolor="#0D1117")
         ax.set_facecolor("#0D1117")
-
+        display = np.fliplr(display)
         im = ax.imshow(
             display,
             origin="upper",
             aspect="auto",
-            extent=[vel[in_win][0], vel[in_win][-1],
+            extent=[vel[in_win][-1], vel[in_win][0],
                     ra_data[-1], ra_data[0]],
             vmin=vmin, vmax=vmax,
             cmap="inferno",
