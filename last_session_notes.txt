@@ -1,6 +1,6 @@
 hi_analyzer — Project Session Notes
 =====================================
-Last updated: 2026-06-28
+Last updated: 2026-06-29
 GitHub repo: https://github.com/wezelball/hi_analyzer
 Observer: David Cohen (wezelball)
 Site name: TwoMice_RA
@@ -51,6 +51,23 @@ Mount (future):
   has known bugs — not yet resolved)
   Large pan-tilt mount also available (previously used for heavy
   camera)
+
+Power system:
+  12V 18Ah AGM battery
+  150W solar panel with MPPT charge controller
+  System draw: ~1A at 12V (12W) — includes PC, RTL-SDR,
+    LNA, USB relay, and cooling fan
+  Usable battery capacity: ~108 Wh (50% DoD limit for AGM)
+  Daily solar harvest: ~630-735 Wh (7 hours direct sun,
+    accounting for real-world efficiency losses)
+  24-hour observation: well within capacity
+  48-hour observation: feasible in good weather; overnight
+    periods (~144 Wh) slightly exceed usable battery alone,
+    relies on solar topping up battery each day before sunset
+  Voltage data logger ordered (not yet received) — will
+    provide full discharge/recharge curves for future planning
+  Temperature/humidity/barometric sensor previously in
+    enclosure — removed after 2026-06-28 observation
 
 Data acquisition software:
   ezCol (ezRA suite) version ezCol250313a.py
@@ -105,6 +122,15 @@ El=65° dataset (different declination strip, separate stack):
                        (started 1 hour later than 260626; RA
                         alignment handles the offset automatically)
   These must NOT be mixed with the El=90° stack.
+
+24-hour observation dataset (in progress / planned):
+  WGA_260629_00.txt  — 2026-06-29, El=90°, started 0000 UTC
+                       (currently running as of time of writing)
+                       Full RA strip coverage at Dec +37.8°
+  WGA_260701_00.txt  — 2026-07-01, El=90°, planned start 0000 UTC
+                       (battery recovery day on 2026-06-30, no obs)
+  Plan: stack these two 24-hour files for sqrt(2) SNR improvement
+  and complete galactic strip map at Dec +37.8°
 
 Science result so far:
   Three-night sidereal stack (El=90°) shows two distinct HI
@@ -260,31 +286,97 @@ KNOWN ISSUES / TO-DO
   be made adaptive in future.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EQUIPMENT INVENTORY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Full inventory documented in ra_inventory.txt (in repo).
+Key items beyond the primary HI setup:
+  - 12ft solid C-band dish with mount (needs elevation conversion)
+  - 12ft mesh dish, no mount (VE4MA feed built, in garage)
+  - Quagi antennas 408 MHz x2, cavity filters 408 MHz x2
+  - G0KSC LFA Yagi 406 MHz x2
+  - Radio Jove analog receivers x2 (20.1 MHz ±150 kHz)
+  - HackRF One with optional RF shield
+  - Airspy R2 (lower limit 24 MHz — cannot receive 20.1 MHz)
+  - RTL-SDR Blog V3 (direct sampling mode reaches 20 MHz)
+  - Ten-Tec Model 1056 direct conversion receivers x2
+    (HF/decametric bands only — NOT 408 MHz or 1420 MHz)
+    One slaved to other for possible future HF interferometer
+  - AD3802 RF/IF phase detector evaluation board
+  - Ithaco Dynatrac 391A Lock-in Amplifier
+  - VNA (up to 1.2 GHz, best accuracy well below upper limit)
+  - RF-GADGETS.COM noise source (10 MHz - 1600 MHz)
+  - HP435B RF Power Meter
+  - Moxon antenna materials at 20.1 MHz (partially acquired)
+  - System76 Oryx Pro laptop (quad-core i7, 24GB RAM, Ubuntu)
+    — designated Radio Jove development/observation machine
+  - Intel NUC5CPYH (Celeron N3050, up to 8GB RAM)
+    — suitable for headless SDR recording at modest sample rates
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 NEW HARDWARE PROJECT (started, in early research/acquisition stage)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-The decision has been made to go with a Radio Jove system in order
-to monitor Jupiter and solar events at roughly 20.1 MHz. Most of the
-materials are already available. The project will consist of the 
-following components:
-- A System 76 Oryx Pro laptop with 24 GB ram, running Ubuntu Linux 22.04.
-  Gnu Radio is likely to be used for plotting and storing waterfall and
-  total power graphs. Laptop is currently being configured, and a new
-  battery will be needed replace the original, if available.
-- A HackRF One software-defined radio with optional RF shielding is
-  available for use. An RTL-SDR Blog v3 is being considered, as it can
-  operate at 20.1 MHz in direct sampling mode. The side effects of using
-  direct sampling mode will have to be researched prior to final decision.
-- A Moxon antenna on a chimney mount mast at an elevation of about 18-feet 
-  will be used. The gain is about equal to a standard dual-dipole Radio
-  Jove antenna at that elevation. I need to study the pattern elevation
-  and compare with Jupiter and Sun positions. I have some parts, but might
-  need to order additional materials.
+Radio Jove Jupiter/solar monitoring at 20.1 MHz.
+Will be moved to its own GitHub repo when ready.
 
-TODO (next steps)
-- Inventory antenna parts and determine what I need to order.
-- Complete laptop software update (backup Sync files first, just in case).
-- Purchase laptop battery.
-- Finalize receiver choice.
+ANTENNA:
+  Moxon rectangle at 20.1 MHz (materials partially acquired)
+  Mounting: chimney mount at ~12ft + 6ft fiberglass tube extension
+  Total height: ~18ft — matches standard dual-dipole Jove array
+  Wood house construction — non-conductive, no detuning concern
+  Orientation: driven element facing south for Jupiter/solar transit
+  Key Moxon dimensions at 20.1 MHz (Cebik equations):
+    Total width (A): ~6.7m (22ft)
+    Total depth:     ~2.2m (7ft)
+  No guy wires needed at this height with lightweight wire Moxon
+  TODO: inventory parts, determine what needs to be ordered
+  TODO: study elevation pattern vs Jupiter/Sun sky positions
+
+RECEIVER:
+  Running parallel paths via power splitter (~3.5 dB loss, acceptable):
+    Path 1: Radio Jove analog receiver (20.1 MHz ±150 kHz)
+             → Radio-SkyPipe or similar → total power strip chart
+             AGC, noise blanker, noise reduction must be OFF
+    Path 2: HackRF One with RF shield → GNU Radio → waterfall display
+             HackRF covers 1 MHz - 6 GHz, so 20.1 MHz is fine
+             Poor noise figure at HF but irrelevant — sky noise
+             dominates at 20 MHz (galactic background ~thousands K)
+             No LNA needed — Jupiter/solar bursts are very strong
+  Receiver choice notes:
+    Airspy R2 ruled out — lower limit is 24 MHz
+    RTL-SDR V3 direct sampling mode possible but side effects
+    need research before committing
+    HackRF One is current primary SDR choice
+
+SOFTWARE:
+  GNU Radio on System76 Oryx Pro (Ubuntu) — primary platform
+  Oryx Pro easily handles HackRF at full 20 MHz sample rate
+  GQRX also available as simpler alternative for initial testing
+  GNU Radio flowgraph development planned — will be collaborative
+  (Claude writes/explains, David tests and reports back)
+  Planned flowgraph capabilities:
+    - Real-time waterfall display at 20.1 MHz
+    - Total power computation (replicates analog receiver output)
+    - Jupiter burst detection with timestamp logging
+    - Raw IQ recording for replay/reanalysis
+
+BANDPASS FILTERING:
+  Test without filtering first — rural location (Lake Monticello)
+  should have less HF broadcast interference than urban sites
+  If overload artifacts appear in waterfall, options are:
+    1. Simple homebrew high-pass filter (cuts broadcast below ~15 MHz)
+    2. Tuned LC bandpass centered on 20.1 MHz
+  VNA ideal for tuning homebrew HF filters
+
+TODO (next steps):
+  - Inventory Moxon antenna parts, order what is missing
+  - Complete Oryx Pro software setup (backup Sync files first)
+  - Purchase Oryx Pro replacement battery if available
+  - Finalize SDR receiver choice (HackRF vs RTL-SDR direct sampling)
+  - Research RTL-SDR direct sampling mode limitations at 20 MHz
+  - Study Moxon elevation pattern vs Jupiter/Sun transit elevations
+  - Create new GitHub repo for Radio Jove project
+  - Move last_session_notes.txt to new Radio Jove repo
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -316,7 +408,22 @@ FUTURE HARDWARE PROJECTS (discussed, not started)
    - Observer has prior analog interferometer experience (with mentor)
    - Sidelined due to complexity; may return to later
 
-3. Az-El mount improvement
+3. 408 MHz two-element interferometer
+   - Hardware already on hand: Quagi x2, G0KSC Yagi x2,
+     cavity filters x2, amplifiers, AD3802 phase detector
+   - RTL-SDR V3 clock sharing approach documented in notes
+   - Ten-Tec receivers NOT suitable (HF only, not 408 MHz)
+   - Sidelined pending Radio Jove project completion
+
+4. HF interferometer (Radio Jove / Ten-Tec based)
+   - Based on fringes.org design (site offline, full archive
+     downloaded by David — includes C++ software)
+   - Two Radio Jove dual-dipole arrays, E-W baseline
+   - Requires significant land clearing (large real estate)
+   - Ten-Tec 1056 pair (one slaved) suitable for this
+   - Sidelined — land clearing required
+
+5. Az-El mount improvement
    - Fix coordinate calculation bugs using Astropy SkyCoord
    - Would enable pointed observations with the smaller dish
 
@@ -345,8 +452,21 @@ Sidereal stacking rationale:
 HOW TO START A NEW SESSION
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 1. Paste this file into the chat.
-2. Give Claude the repo URL: https://github.com/wezelball/hi_analyzer
-3. Claude can fetch main.py and other files directly from GitHub
-   to get the current code state.
-4. Update this file at the end of each session with any new
+2. Give Claude the relevant repo URL(s):
+     HI analyzer:  https://github.com/wezelball/hi_analyzer
+     Radio Jove:   (new repo TBD — not yet created)
+3. Upload specific source files being worked on that session
+   (Claude's file viewer truncates long files; uploading avoids
+   this problem entirely — only upload files relevant to the
+   session's work)
+4. Claude can also fetch files directly from public GitHub repos
+   but this requires a search step first due to tool restrictions
+5. Update this file at the end of each session with any new
    findings, decisions, or changes to the to-do list.
+
+NOTE ON TWO REPOS:
+  This notes file currently lives in hi_analyzer repo but covers
+  both projects. Once the Radio Jove repo is created, split into:
+    hi_analyzer_notes.txt  → hi_analyzer repo
+    radiojove_notes.txt    → Radio Jove repo
+  Remove this combined file from hi_analyzer when split is done.
