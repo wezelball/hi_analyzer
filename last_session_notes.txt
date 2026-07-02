@@ -259,6 +259,33 @@ KNOWN ISSUES / TO-DO
   of 0.1 for excluding zero-valued channels is hardcoded. Could
   be made adaptive in future.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+NEW HARDWARE PROJECT (started, in early research/acquisition stage)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+The decision has been made to go with a Radio Jove system in order
+to monitor Jupiter and solar events at roughly 20.1 MHz. Most of the
+materials are already available. The project will consist of the 
+following components:
+- A System 76 Oryx Pro laptop with 24 GB ram, running Ubuntu Linux 22.04.
+  Gnu Radio is likely to be used for plotting and storing waterfall and
+  total power graphs. Laptop is currently being configured, and a new
+  battery will be needed replace the original, if available.
+- A HackRF One software-defined radio with optional RF shielding is
+  available for use. An RTL-SDR Blog v3 is being considered, as it can
+  operate at 20.1 MHz in direct sampling mode. The side effects of using
+  direct sampling mode will have to be researched prior to final decision.
+- A Moxon antenna on a chimney mount mast at an elevation of about 18-feet 
+  will be used. The gain is about equal to a standard dual-dipole Radio
+  Jove antenna at that elevation. I need to study the pattern elevation
+  and compare with Jupiter and Sun positions. I have some parts, but might
+  need to order additional materials.
+
+TODO (next steps)
+- Inventory antenna parts and determine what I need to order.
+- Complete laptop software update (backup Sync files first, just in case).
+- Purchase laptop battery.
+- Finalize receiver choice.
+
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 FUTURE HARDWARE PROJECTS (discussed, not started)
@@ -292,6 +319,7 @@ FUTURE HARDWARE PROJECTS (discussed, not started)
 3. Az-El mount improvement
    - Fix coordinate calculation bugs using Astropy SkyCoord
    - Would enable pointed observations with the smaller dish
+
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
