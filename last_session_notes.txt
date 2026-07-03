@@ -314,69 +314,10 @@ Key items beyond the primary HI setup:
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-NEW HARDWARE PROJECT (started, in early research/acquisition stage)
+RADIO JOVE PROJECT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Radio Jove Jupiter/solar monitoring at 20.1 MHz.
-Will be moved to its own GitHub repo when ready.
-
-ANTENNA:
-  Moxon rectangle at 20.1 MHz (materials partially acquired)
-  Mounting: chimney mount at ~12ft + 6ft fiberglass tube extension
-  Total height: ~18ft — matches standard dual-dipole Jove array
-  Wood house construction — non-conductive, no detuning concern
-  Orientation: driven element facing south for Jupiter/solar transit
-  Key Moxon dimensions at 20.1 MHz (Cebik equations):
-    Total width (A): ~6.7m (22ft)
-    Total depth:     ~2.2m (7ft)
-  No guy wires needed at this height with lightweight wire Moxon
-  TODO: inventory parts, determine what needs to be ordered
-  TODO: study elevation pattern vs Jupiter/Sun sky positions
-
-RECEIVER:
-  Running parallel paths via power splitter (~3.5 dB loss, acceptable):
-    Path 1: Radio Jove analog receiver (20.1 MHz ±150 kHz)
-             → Radio-SkyPipe or similar → total power strip chart
-             AGC, noise blanker, noise reduction must be OFF
-    Path 2: HackRF One with RF shield → GNU Radio → waterfall display
-             HackRF covers 1 MHz - 6 GHz, so 20.1 MHz is fine
-             Poor noise figure at HF but irrelevant — sky noise
-             dominates at 20 MHz (galactic background ~thousands K)
-             No LNA needed — Jupiter/solar bursts are very strong
-  Receiver choice notes:
-    Airspy R2 ruled out — lower limit is 24 MHz
-    RTL-SDR V3 direct sampling mode possible but side effects
-    need research before committing
-    HackRF One is current primary SDR choice
-
-SOFTWARE:
-  GNU Radio on System76 Oryx Pro (Ubuntu) — primary platform
-  Oryx Pro easily handles HackRF at full 20 MHz sample rate
-  GQRX also available as simpler alternative for initial testing
-  GNU Radio flowgraph development planned — will be collaborative
-  (Claude writes/explains, David tests and reports back)
-  Planned flowgraph capabilities:
-    - Real-time waterfall display at 20.1 MHz
-    - Total power computation (replicates analog receiver output)
-    - Jupiter burst detection with timestamp logging
-    - Raw IQ recording for replay/reanalysis
-
-BANDPASS FILTERING:
-  Test without filtering first — rural location (Lake Monticello)
-  should have less HF broadcast interference than urban sites
-  If overload artifacts appear in waterfall, options are:
-    1. Simple homebrew high-pass filter (cuts broadcast below ~15 MHz)
-    2. Tuned LC bandpass centered on 20.1 MHz
-  VNA ideal for tuning homebrew HF filters
-
-TODO (next steps):
-  - Inventory Moxon antenna parts, order what is missing
-  - Complete Oryx Pro software setup (backup Sync files first)
-  - Purchase Oryx Pro replacement battery if available
-  - Finalize SDR receiver choice (HackRF vs RTL-SDR direct sampling)
-  - Research RTL-SDR direct sampling mode limitations at 20 MHz
-  - Study Moxon elevation pattern vs Jupiter/Sun transit elevations
-  - Create new GitHub repo for Radio Jove project
-  - Move last_session_notes.txt to new Radio Jove repo
+Radio Jove project has been started. The notes have been
+removed from here and placed in their own project.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
