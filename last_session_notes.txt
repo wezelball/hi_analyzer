@@ -1,6 +1,6 @@
 hi_analyzer — Project Session Notes
 =====================================
-Last updated: 2026-06-29
+Last updated: 2026-07-02
 GitHub repo: https://github.com/wezelball/hi_analyzer
 Observer: David Cohen (wezelball)
 Site name: TwoMice_RA
@@ -73,6 +73,13 @@ Data acquisition software:
   ezCol (ezRA suite) version ezCol250313a.py
   Produces .txt files in the format described below.
 
+Additional data logging:
+  Single data logger for internal enclosure temperature and
+  humidity.
+  Separate data logger for battery voltage.
+  Both data loggers are portable, with their own internal
+  batteries. Both sample at 5-minute intervals.
+
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 DATA FILE FORMAT  (.txt, ezRA/ezCol output)
@@ -123,18 +130,23 @@ El=65° dataset (different declination strip, separate stack):
                         alignment handles the offset automatically)
   These must NOT be mixed with the El=90° stack.
 
-24-hour observation dataset (in progress / planned):
-  WGA_260629_00.txt  — 2026-06-29, El=90°, started 0000 UTC
-                       (currently running as of time of writing)
-                       Full RA strip coverage at Dec +37.8°
-  WGA_260701_00.txt  — 2026-07-01, El=90°, planned start 0000 UTC
-                       (battery recovery day on 2026-06-30, no obs)
-  Plan: stack these two 24-hour files for sqrt(2) SNR improvement
-  and complete galactic strip map at Dec +37.8°
+24-hour observation dataset:
+  WGA_260629_00.txt  — 2026-06-29, El=90°, 0000-2359 UTC
+                       Full 24-hour drift scan, complete RA coverage
+  Second 24-hour run planned: 2026-07-01, 0000 UTC (same pointing)
+  One day allowed for battery recovery, turned into several days due to 
+  excessive heat. Also made fixes and improvements. Added thermostat and
+  separate switch for fan, so that fan can run based on internal temperature,
+  even when rest of system powered down. Added voltage data logger.
+  Stack command when second file is available:
+    python main.py stack-waterfall \
+      data/WGA_260629_00.txt \
+      data/WGA_260701_00.txt \
+      --ra-bin-deg 1.0
 
-Science result so far:
-  Three-night sidereal stack (El=90°) shows two distinct HI
-  velocity components in the Cygnus region:
+Science results:
+  Three-night sidereal stack (El=90°, short runs) shows two distinct
+  HI velocity components in the Cygnus region:
     Component 1 (bright):  LSR velocity ~ -27 km/s
     Component 2 (faint):   LSR velocity ~ -105 km/s
   Both confirmed independently by ezRA's own plots.
@@ -142,6 +154,42 @@ Science result so far:
   along the Cygnus line of sight (possibly local/Orion arm and
   Perseus arm respectively, but not yet confirmed).
   El=65° two-night stack also working well with good SNR.
+
+  24-HOUR OBSERVATION RESULTS (WGA_260630_00.txt):
+  Impressive results — full galactic strip map at Dec +37.8°.
+  Two distinct regions of high signal intensity:
+    RA ~79°  (~5h 20m) — Auriga/Gemini, galactic anticenter crossing
+                          galactic longitude ~180°, outer galaxy HI
+    RA ~307° (~20h 28m) — Cygnus region, galactic longitude ~80°
+                          known two-component structure confirmed
+  Both blobs have "tails" extending toward more negative LSR
+  velocities (leftward on corrected plot = approaching gas,
+  blueshifted). Consistent with Perseus arm signature at both
+  galactic plane crossings.
+  Faint curved signal connects the two blobs across the full
+  RA range between them — diffuse HI from the galactic disk,
+  showing systematic velocity shift due to galactic rotation
+  (rotation curve signature visible in RA-velocity space).
+  hi_analyzer plot contrast substantially better than ezRA.
+  No RFI bands or random bad pixels visible in hi_analyzer plot
+  despite RFI being visible in raw ezRA plots at specific
+  narrow frequencies — pipeline working as intended.
+
+  THERMAL ISSUE (2026-06-29/30):
+  Temperature log showed internal enclosure temperature reached
+  120°F on two consecutive days with system OFF (fan not running).
+  Outdoor temperature ~90°F during heat wave.
+  System taken offline and moved indoors to prevent equipment damage.
+  Mitigations planned:
+    1. Thermostat-controlled fan — operates independently of main
+       system power to prevent heat soak during off periods
+       Set threshold ~85-90°F
+    2. Store receiver enclosure under solar panel to avoid
+       direct sunlight exposure
+    3. Light-colored/reflective paint on enclosure exterior
+       (longer term)
+  As of 2026-07-04, items 1 and 2 have been completed.
+
 
 Typical stack commands:
   python main.py stack-waterfall \
@@ -261,6 +309,31 @@ Session 2026-06-28 work:
   - Final working approach: AC subtraction on shoulder channels
     with zero exclusion. Works on both El=90° and El=65° stacks.
 
+Session 2026-07-02 work:
+  VELOCITY AXIS ORIENTATION FIX:
+  - Standard radio astronomy convention: negative velocities LEFT,
+    positive velocities RIGHT (approaching gas on left, receding right)
+  - Previous plots had this reversed (negative on right)
+  - freq_to_velocity() uses v = c*(f_rest - f_obs)/f_rest which is
+    CORRECT — the display was the problem, not the calculation
+  - Fix in main.py cmd_stack_waterfall(): swap extent x-values AND
+    flip display array with np.fliplr(display) before imshow:
+      display = np.fliplr(display)
+      extent=[vel[in_win][-1], vel[in_win][0], ra_data[-1], ra_data[0]]
+  - Fix in plots.py plot_spectrum(): use ax.set_xlim(vel_kms[-1],
+    vel_kms[0]) after plt.tight_layout() to force axis direction
+    (ax.invert_xaxis() was being overridden by tight_layout)
+  - Fix in plots.py plot_stacked_comparison(): same ax.invert_xaxis()
+    approach
+  - Verified correct by comparison with ezRA plots — tails extend
+    leftward (negative velocity = approaching/blueshifted gas)
+    consistent with ezRA showing tails at higher than rest frequency
+
+  DIAGNOSTIC PRINT STATEMENTS:
+  - Several debug print statements remain in cmd_stack_waterfall()
+    from bandpass correction debugging — should be removed when
+    convenient to clean up console output
+
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 KNOWN ISSUES / TO-DO
@@ -284,41 +357,6 @@ KNOWN ISSUES / TO-DO
 - --bandpass-correct works well on both datasets but the threshold
   of 0.1 for excluding zero-valued channels is hardcoded. Could
   be made adaptive in future.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-EQUIPMENT INVENTORY
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Full inventory documented in ra_inventory.txt (in repo).
-Key items beyond the primary HI setup:
-  - 12ft solid C-band dish with mount (needs elevation conversion)
-  - 12ft mesh dish, no mount (VE4MA feed built, in garage)
-  - Quagi antennas 408 MHz x2, cavity filters 408 MHz x2
-  - G0KSC LFA Yagi 406 MHz x2
-  - Radio Jove analog receivers x2 (20.1 MHz ±150 kHz)
-  - HackRF One with optional RF shield
-  - Airspy R2 (lower limit 24 MHz — cannot receive 20.1 MHz)
-  - RTL-SDR Blog V3 (direct sampling mode reaches 20 MHz)
-  - Ten-Tec Model 1056 direct conversion receivers x2
-    (HF/decametric bands only — NOT 408 MHz or 1420 MHz)
-    One slaved to other for possible future HF interferometer
-  - AD3802 RF/IF phase detector evaluation board
-  - Ithaco Dynatrac 391A Lock-in Amplifier
-  - VNA (up to 1.2 GHz, best accuracy well below upper limit)
-  - RF-GADGETS.COM noise source (10 MHz - 1600 MHz)
-  - HP435B RF Power Meter
-  - Moxon antenna materials at 20.1 MHz (partially acquired)
-  - System76 Oryx Pro laptop (quad-core i7, 24GB RAM, Ubuntu)
-    — designated Radio Jove development/observation machine
-  - Intel NUC5CPYH (Celeron N3050, up to 8GB RAM)
-    — suitable for headless SDR recording at modest sample rates
-
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RADIO JOVE PROJECT
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Radio Jove project has been started. The notes have been
-removed from here and placed in their own project.
-
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 FUTURE HARDWARE PROJECTS (discussed, not started)
@@ -349,25 +387,9 @@ FUTURE HARDWARE PROJECTS (discussed, not started)
    - Observer has prior analog interferometer experience (with mentor)
    - Sidelined due to complexity; may return to later
 
-3. 408 MHz two-element interferometer
-   - Hardware already on hand: Quagi x2, G0KSC Yagi x2,
-     cavity filters x2, amplifiers, AD3802 phase detector
-   - RTL-SDR V3 clock sharing approach documented in notes
-   - Ten-Tec receivers NOT suitable (HF only, not 408 MHz)
-   - Sidelined pending Radio Jove project completion
-
-4. HF interferometer (Radio Jove / Ten-Tec based)
-   - Based on fringes.org design (site offline, full archive
-     downloaded by David — includes C++ software)
-   - Two Radio Jove dual-dipole arrays, E-W baseline
-   - Requires significant land clearing (large real estate)
-   - Ten-Tec 1056 pair (one slaved) suitable for this
-   - Sidelined — land clearing required
-
-5. Az-El mount improvement
+3. Az-El mount improvement
    - Fix coordinate calculation bugs using Astropy SkyCoord
    - Would enable pointed observations with the smaller dish
-
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -393,16 +415,11 @@ Sidereal stacking rationale:
 HOW TO START A NEW SESSION
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 1. Paste this file into the chat.
-2. Give Claude the relevant repo URL(s):
-     HI analyzer:  https://github.com/wezelball/hi_analyzer
-     Radio Jove:   (new repo TBD — not yet created)
+2. Give Claude the repo URL: https://github.com/wezelball/hi_analyzer
 3. Upload specific source files being worked on that session
    (Claude's file viewer truncates long files; uploading avoids
-   this problem entirely — only upload files relevant to the
-   session's work)
-4. Claude can also fetch files directly from public GitHub repos
-   but this requires a search step first due to tool restrictions
-5. Update this file at the end of each session with any new
+   this — only upload files relevant to the session's work)
+4. Update this file at the end of each session with any new
    findings, decisions, or changes to the to-do list.
 
 NOTE ON TWO REPOS:
