@@ -78,12 +78,19 @@ class SkyMap:
         dec_bins: int = 180,
         ra_range:  Optional[Tuple[float, float]] = None,
         dec_range: Optional[Tuple[float, float]] = None,
+        beam_halfwidth_deg: float = 1.5,
     ):
         self.records     = records
         self.vel_min     = vel_min_kms
         self.vel_max     = vel_max_kms
         self.ra_bins     = ra_bins
         self.dec_bins    = dec_bins
+        # Each drift-scan record is really a beam-width-wide strip of sky,
+        # not an infinitesimal point in Dec. Without this, every strip
+        # collapses onto a single pixel row and is invisible on any map
+        # that spans more than a degree or two of Dec. This is a display
+        # approximation, not a measured beam pattern.
+        self.beam_halfwidth_deg = beam_halfwidth_deg
 
         # Determine map extent from data
         all_ra  = np.array([r.ra_deg  for r in records])
@@ -125,6 +132,7 @@ class SkyMap:
         """
         ra_edges  = np.linspace(*self.ra_range,  self.ra_bins  + 1)
         dec_edges = np.linspace(*self.dec_range, self.dec_bins + 1)
+        dec_centers = (dec_edges[:-1] + dec_edges[1:]) / 2.0
 
         image  = np.zeros((self.dec_bins, self.ra_bins), dtype=float)
         counts = np.zeros((self.dec_bins, self.ra_bins), dtype=int)
@@ -142,13 +150,27 @@ class SkyMap:
                 continue
             value = float(np.nanmean(power_in_window))
 
-            # Find pixel
+            # RA: nearest pixel (RA coverage is continuous, one bin is fine)
             i_ra  = np.searchsorted(ra_edges,  rec.ra_deg)  - 1
-            i_dec = np.searchsorted(dec_edges, rec.dec_deg) - 1
+            if not (0 <= i_ra < self.ra_bins):
+                continue
 
-            if (0 <= i_ra < self.ra_bins and 0 <= i_dec < self.dec_bins):
-                image[i_dec, i_ra]  += value
-                counts[i_dec, i_ra] += 1
+            # Dec: spread this integration across every pixel row within
+            # beam_halfwidth_deg, since a single drift-scan pointing covers
+            # a beam-width-wide strip of sky, not one infinitesimal pixel.
+            dec_rows = np.where(np.abs(dec_centers - rec.dec_deg)
+                                 <= self.beam_halfwidth_deg)[0]
+            if dec_rows.size == 0:
+                # Fallback: nearest single row (e.g. beam_halfwidth_deg
+                # smaller than one pixel)
+                i_dec = np.searchsorted(dec_edges, rec.dec_deg) - 1
+                if 0 <= i_dec < self.dec_bins:
+                    dec_rows = np.array([i_dec])
+                else:
+                    continue
+
+            image[dec_rows, i_ra]  += value
+            counts[dec_rows, i_ra] += 1
 
         # Average pixels with multiple observations
         with np.errstate(invalid="ignore", divide="ignore"):
@@ -210,12 +232,6 @@ class SkyMap:
         ax.axhline(y=0, color="#4A6A8A", linewidth=0.8,
                    linestyle="-", alpha=0.5)
 
-        # Coverage indicator — show which Dec strips have data
-        all_dec = sorted(set(r.dec_deg for r in self.records))
-        for dec in all_dec:
-            ax.axhline(y=dec, color="#00BFFF", linewidth=0.5,
-                       linestyle=":", alpha=0.4)
-
         # Axes labels
         ax.set_xlabel("Right Ascension (°)", color=TEXT_COLOR, fontsize=10)
         ax.set_ylabel("Declination (°)",     color=TEXT_COLOR, fontsize=10)
@@ -226,7 +242,8 @@ class SkyMap:
         # Colorbar
         cbar = fig.colorbar(im, ax=ax, fraction=0.015, pad=0.01)
         cbar.set_label(
-            f"Mean P_ant/P_ref  (v = {self.vel_min:.0f} to {self.vel_max:.0f} km/s)",
+            f"Mean ΔP/P_ref, DC subtracted  "
+            f"(v = {self.vel_min:.0f} to {self.vel_max:.0f} km/s)",
             color=TEXT_COLOR, fontsize=8
         )
         cbar.ax.yaxis.set_tick_params(color=TEXT_COLOR)

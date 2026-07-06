@@ -551,6 +551,42 @@ def cmd_skymap(obs_files, args) -> None:
             cal = flag_rfi(cal, sigma_threshold=args.sigma)
             cal = flag_persistent_rfi(cal)
 
+        # --- Bandpass correction + DC-offset removal ---
+        # Same approach as cmd_stack_waterfall. The raw calibrated ratio
+        # sits at a DC level of ~0.595 with the HI signal only ~0.017
+        # above it, so without this step the sky map is dominated by
+        # DC level / bandpass shape rather than actual HI structure.
+        n_chan = cal.shape[1]
+
+        if args.bandpass_correct:
+            n_edge = max(4, int(n_chan * 0.15))
+            x = np.arange(n_chan, dtype=float)
+            median_spec = np.nanmedian(cal, axis=0)
+
+            fit_mask = np.ones(n_chan, dtype=bool)
+            fit_mask[:n_edge] = False
+            fit_mask[-n_edge:] = False
+            hi_start = n_chan // 3
+            hi_end   = 2 * n_chan // 3
+            fit_mask[hi_start:hi_end] = False
+
+            valid = fit_mask & np.isfinite(median_spec) & (median_spec > 0.1)
+            if valid.sum() >= 2:
+                coeffs = np.polyfit(x[valid], median_spec[valid], 2)
+                bandpass = np.polyval(coeffs, x)
+                # Remove only the shape, not the DC level
+                bandpass_ac = bandpass - np.mean(bandpass)
+                cal = cal - bandpass_ac[np.newaxis, :]
+
+        # Always subtract per-row median to remove the DC offset
+        row_medians = np.nanmedian(cal, axis=1, keepdims=True)
+        cal = cal - row_medians
+
+        print(f"  {obs.path.name}: bandpass_correct={args.bandpass_correct}  "
+              f"row-median DC removed  "
+              f"(cal range after correction: "
+              f"{np.nanmin(cal):.5f} to {np.nanmax(cal):.5f})")
+
         # Replace pair spectra with calibrated versions
         records = assign_radec(obs)
         for i, rec in enumerate(records):
