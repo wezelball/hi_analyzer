@@ -1,6 +1,6 @@
 hi_analyzer — Project Session Notes
 =====================================
-Last updated: 2026-07-02
+Last updated: 2026-07-05
 GitHub repo: https://github.com/wezelball/hi_analyzer
 Observer: David Cohen (wezelball)
 Site name: TwoMice_RA
@@ -43,14 +43,6 @@ Calibration / switching:
 
 Mount (current:)
   Large camera tripod, no motors, manually adjusted.
-
-Mount (future):
-  Az=180° (south), El=90° (zenith) for Cyg A drift scans
-  Az-El mount available (LX200 OTA removed, stepper motors +
-  encoders fitted, Python GUI written but coordinate calculation
-  has known bugs — not yet resolved)
-  Large pan-tilt mount also available (previously used for heavy
-  camera)
 
 Power system:
   12V 18Ah AGM battery
@@ -128,21 +120,34 @@ El=65° dataset (different declination strip, separate stack):
   WGA_260628_01.txt  — 2026-06-28, El=65°, 1448 lines
                        (started 1 hour later than 260626; RA
                         alignment handles the offset automatically)
+  WGA_260629_00.txt  — 2026-06-29, El=65°, 8-hour observation
+                       Stacks together with the two files above.
   These must NOT be mixed with the El=90° stack.
 
 24-hour observation dataset:
-  WGA_260629_00.txt  — 2026-06-29, El=90°, 0000-2359 UTC
+  WGA_260630_00.txt  — 2026-06-30, El=90°, 0000-2359 UTC
                        Full 24-hour drift scan, complete RA coverage
-  Second 24-hour run planned: 2026-07-01, 0000 UTC (same pointing)
-  One day allowed for battery recovery, turned into several days due to 
-  excessive heat. Also made fixes and improvements. Added thermostat and
-  separate switch for fan, so that fan can run based on internal temperature,
-  even when rest of system powered down. Added voltage data logger.
-  Stack command when second file is available:
+  WGA_260705_00.txt  — 2026-07-05, El=90°, 0000-2359 UTC, Az=180°
+                       Second full 24-hour drift scan, same pointing.
+                       Some noise got through during acquisition due to
+                       thunderstorms at the time (not a concern — known
+                       cause). Overall quality good after bandpass
+                       correction.
+  These two files stack together (same pointing, both 24-hour runs).
+  Stack command:
     python main.py stack-waterfall \
-      data/WGA_260629_00.txt \
-      data/WGA_260701_00.txt \
-      --ra-bin-deg 1.0
+      data/WGA_260630_00.txt \
+      data/WGA_260705_00.txt \
+      --ra-bin-deg 1.0 \
+      --bandpass-correct
+
+Session 2026-07-05 result:
+  Stacking WGA_260705_00.txt with WGA_260630_00.txt (first 24-hour
+  run) reduced noise as anticipated — sqrt(2) SNR improvement
+  behaving as expected. Waterfall stacking pipeline (stack-waterfall,
+  see below) continues to perform well; considered a success at
+  this point for both short (multi-night, same-elevation) stacks
+  and full 24-hour drift scan stacks.
 
 Science results:
   Three-night sidereal stack (El=90°, short runs) shows two distinct
@@ -338,11 +343,6 @@ Session 2026-07-02 work:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 KNOWN ISSUES / TO-DO
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- Coordinate calculation bugs in the az-el mount Python GUI
-  (spherical trig / quadrant issues). Not yet fixed. Astropy
-  was suggested as the clean solution — use SkyCoord + AltAz
-  frame transforms rather than manual trig.
-
 - --subtract-baseline has little practical effect and is largely
   superseded by --bandpass-correct. Consider removing or fixing.
 
@@ -357,40 +357,6 @@ KNOWN ISSUES / TO-DO
 - --bandpass-correct works well on both datasets but the threshold
   of 0.1 for excluding zero-valued channels is hardcoded. Could
   be made adaptive in future.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-FUTURE HARDWARE PROJECTS (discussed, not started)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. 12-foot mesh dish (already owned, free acquisition)
-   - VE4MA feed built and sitting in garage (coffee can design
-     with adjustable choke ring, scaled to 1420 MHz, designed
-     by Dr. Paul Shuch / SETI League)
-   - Mount is the main unsolved problem — dish is too large/heavy
-     for existing mounts
-   - Best plan: dedicated concrete pad in yard with southern
-     exposure, purpose-built mount, elevation-only for drift scan
-   - Optical telescope shed on concrete pier is in the ideal
-     location — shed is removable (3x 3/8" SS threaded rods in
-     12" pier) and used only in winter. Summer = radio astronomy.
-     BUT: finding a good alternative site for the dish pad is
-     still needed (trees obstruct much of the property).
-   - Estimated gain at 1420 MHz: ~35 dBi, HPBW ~2.5°
-
-2. Correlation interferometer (sidelined for now)
-   - Two-element, correlation (not adding) type
-   - Best frequency: 1420 MHz (existing hardware, protected band)
-   - Hardware path: two RTL-SDR Blog V3 dongles with clock
-     sharing via CLK IN/OUT pads (no crystal removal needed on V3)
-   - Key software: effex (github.com/evanmayer/effex)
-   - Key reference: CCERA Memo 0008 (Marcus Leech)
-   - Community: groups.google.com/g/amateur-radio-interferometry
-   - Observer has prior analog interferometer experience (with mentor)
-   - Sidelined due to complexity; may return to later
-
-3. Az-El mount improvement
-   - Fix coordinate calculation bugs using Astropy SkyCoord
-   - Would enable pointed observations with the smaller dish
-
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RADIO ASTRONOMY CONTEXT
