@@ -109,6 +109,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="RA pixels in sky map")
     p.add_argument("--dec-bins", type=int, default=90,
                    help="Dec pixels in sky map")
+    p.add_argument("--beam-halfwidth-deg", type=float, default=12.5,
+                   help="Sky map: dec smearing half-width per integration "
+                        "(deg). Defaults to half this dish's elevation "
+                        "HPBW (~25 deg). Widen/narrow if you change dishes.")
 
     return p
 
@@ -604,6 +608,7 @@ def cmd_skymap(obs_files, args) -> None:
         vel_max_kms=args.vel_max,
         ra_bins=args.ra_bins,
         dec_bins=args.dec_bins,
+        beam_halfwidth_deg=args.beam_halfwidth_deg,
     )
 
     print("Building sky map grid...")

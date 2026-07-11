@@ -78,7 +78,7 @@ class SkyMap:
         dec_bins: int = 180,
         ra_range:  Optional[Tuple[float, float]] = None,
         dec_range: Optional[Tuple[float, float]] = None,
-        beam_halfwidth_deg: float = 1.5,
+        beam_halfwidth_deg: float = 12.5,
     ):
         self.records     = records
         self.vel_min     = vel_min_kms
@@ -86,10 +86,11 @@ class SkyMap:
         self.ra_bins     = ra_bins
         self.dec_bins    = dec_bins
         # Each drift-scan record is really a beam-width-wide strip of sky,
-        # not an infinitesimal point in Dec. Without this, every strip
-        # collapses onto a single pixel row and is invisible on any map
-        # that spans more than a degree or two of Dec. This is a display
-        # approximation, not a measured beam pattern.
+        # not an infinitesimal point in Dec. Default matches half of this
+        # dish's measured elevation HPBW (~25 deg, per its spec sheet:
+        # 100cm x 60cm Nooelec wire-grid parabolic, ~20 dBi gain at
+        # 1420 MHz). Update this if you change dishes or get a better
+        # HPBW measurement.
         self.beam_halfwidth_deg = beam_halfwidth_deg
 
         # Determine map extent from data
