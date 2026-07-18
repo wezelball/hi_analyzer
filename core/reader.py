@@ -63,13 +63,31 @@ class ObsHeader:
     @property
     def dec_deg(self) -> float:
         """
-        Declination of the beam pointing (degrees).
-        For a south-facing dish (Az=180°): Dec = Lat - (90 - El).
-        At El=90° (zenith): Dec = Lat.
+        Declination of the beam pointing (degrees), for the fixed
+        Alt/Az/Lat this observation was recorded at.
+
+        General formula (valid for any azimuth):
+            sin(Dec) = sin(Lat)*sin(El) + cos(Lat)*cos(El)*cos(Az)
+
+        This is time-invariant for a FIXED Alt/Az pointing (ignoring
+        precession/nutation/aberration, which are sub-degree over a
+        single day) -- whatever object is currently at a given fixed
+        Alt/Az always has the same current-epoch Dec, regardless of
+        the specific azimuth. The previous version of this property
+        only handled Az=180 (due south) correctly; for Az=0 (due
+        north) it silently returned the wrong value (e.g. reporting
+        22.8 deg instead of the correct 52.8 deg for Az=0, El=75,
+        Lat=37.8). Always use this formula rather than assuming a
+        particular azimuth.
         """
-        if self.el_deg >= 90.0:
-            return self.latitude
-        return self.latitude - (90.0 - self.el_deg)
+        import math
+        lat_r = math.radians(self.latitude)
+        el_r  = math.radians(self.el_deg)
+        az_r  = math.radians(self.az_deg)
+        sin_dec = (math.sin(lat_r) * math.sin(el_r) +
+                   math.cos(lat_r) * math.cos(el_r) * math.cos(az_r))
+        sin_dec = max(-1.0, min(1.0, sin_dec))  # guard fp rounding at poles
+        return math.degrees(math.asin(sin_dec))
 
     def __str__(self) -> str:
         return (

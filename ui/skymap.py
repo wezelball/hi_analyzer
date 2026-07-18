@@ -79,6 +79,8 @@ class SkyMap:
         ra_range:  Optional[Tuple[float, float]] = None,
         dec_range: Optional[Tuple[float, float]] = None,
         beam_halfwidth_deg: float = 12.5,
+        az_hpbw_deg: float = 15.0,
+        smooth_ra_kernel: Optional[int] = None,
     ):
         self.records     = records
         self.vel_min     = vel_min_kms
@@ -86,12 +88,27 @@ class SkyMap:
         self.ra_bins     = ra_bins
         self.dec_bins    = dec_bins
         # Each drift-scan record is really a beam-width-wide strip of sky,
-        # not an infinitesimal point in Dec. Default matches half of this
-        # dish's measured elevation HPBW (~25 deg, per its spec sheet:
-        # 100cm x 60cm Nooelec wire-grid parabolic, ~20 dBi gain at
-        # 1420 MHz). Update this if you change dishes or get a better
-        # HPBW measurement.
+        # not an infinitesimal point in Dec. Default is half this dish's
+        # measured elevation HPBW (~25 deg, 100x60cm Nooelec wire-grid
+        # parabolic). Update if you change dishes.
         self.beam_halfwidth_deg = beam_halfwidth_deg
+        # Median-filter kernel size (RA direction) applied to the final
+        # gridded image, same technique already proven in
+        # cmd_stack_waterfall: removes single-pixel noise spikes while
+        # preserving real structure. A single integration was never
+        # really a 1-degree-wide sample -- the antenna's own azimuth
+        # beam (~15 deg HPBW per its spec sheet) already smears it over
+        # roughly this much sky, so the kernel is computed from that real
+        # beam width and the actual RA bin size, rather than picked
+        # arbitrarily. Pass smooth_ra_kernel explicitly to override.
+        if smooth_ra_kernel is None:
+            ra_bin_width_deg = (ra_range[1] - ra_range[0]) / ra_bins if ra_range \
+                else 360.0 / ra_bins
+            smooth_ra_kernel = max(1, int(round(az_hpbw_deg / ra_bin_width_deg)))
+            if smooth_ra_kernel % 2 == 0:
+                smooth_ra_kernel += 1  # median_filter wants an odd kernel
+        self.az_hpbw_deg      = az_hpbw_deg
+        self.smooth_ra_kernel = smooth_ra_kernel
 
         # Determine map extent from data
         all_ra  = np.array([r.ra_deg  for r in records])
@@ -135,8 +152,19 @@ class SkyMap:
         dec_edges = np.linspace(*self.dec_range, self.dec_bins + 1)
         dec_centers = (dec_edges[:-1] + dec_edges[1:]) / 2.0
 
-        image  = np.zeros((self.dec_bins, self.ra_bins), dtype=float)
-        counts = np.zeros((self.dec_bins, self.ra_bins), dtype=int)
+        image   = np.zeros((self.dec_bins, self.ra_bins), dtype=float)
+        weights = np.zeros((self.dec_bins, self.ra_bins), dtype=float)
+        counts  = np.zeros((self.dec_bins, self.ra_bins), dtype=int)
+
+        # beam_halfwidth_deg is treated as the beam's half-width-at-half-
+        # max (HWHM). Converting to a Gaussian sigma gives a smooth taper
+        # that matches a real antenna beam much better than a uniform box
+        # of equal weight out to a hard edge -- the previous box weighting
+        # is why two overlapping strips could show up with identical
+        # values in their overlap zone (edge-of-beam and center-of-beam
+        # samples were being weighted the same).
+        dec_sigma = self.beam_halfwidth_deg / 1.1774
+        search_radius = 2.5 * dec_sigma  # generous cutoff, negligible tail beyond this
 
         for rec in self.records:
             # Velocity window
@@ -151,31 +179,59 @@ class SkyMap:
                 continue
             value = float(np.nanmean(power_in_window))
 
-            # RA: nearest pixel (RA coverage is continuous, one bin is fine)
+            # RA: nearest pixel (RA coverage is continuous, one bin is fine;
+            # beam-width smoothing in RA is applied afterward as a proper
+            # filter, see smooth_ra_kernel below)
             i_ra  = np.searchsorted(ra_edges,  rec.ra_deg)  - 1
             if not (0 <= i_ra < self.ra_bins):
                 continue
 
-            # Dec: spread this integration across every pixel row within
-            # beam_halfwidth_deg, since a single drift-scan pointing covers
-            # a beam-width-wide strip of sky, not one infinitesimal pixel.
+            # Dec: Gaussian-weighted contribution to every pixel row within
+            # search_radius, since a single drift-scan pointing covers a
+            # beam-width-wide strip of sky, not one infinitesimal pixel.
             dec_rows = np.where(np.abs(dec_centers - rec.dec_deg)
-                                 <= self.beam_halfwidth_deg)[0]
+                                 <= search_radius)[0]
             if dec_rows.size == 0:
-                # Fallback: nearest single row (e.g. beam_halfwidth_deg
-                # smaller than one pixel)
                 i_dec = np.searchsorted(dec_edges, rec.dec_deg) - 1
                 if 0 <= i_dec < self.dec_bins:
                     dec_rows = np.array([i_dec])
+                    row_weights = np.array([1.0])
                 else:
                     continue
+            else:
+                delta = dec_centers[dec_rows] - rec.dec_deg
+                row_weights = np.exp(-0.5 * (delta / dec_sigma) ** 2)
 
-            image[dec_rows, i_ra]  += value
-            counts[dec_rows, i_ra] += 1
+            image[dec_rows, i_ra]   += value * row_weights
+            weights[dec_rows, i_ra] += row_weights
+            counts[dec_rows, i_ra]  += 1
 
-        # Average pixels with multiple observations
+        # Weighted average of pixels with multiple contributing observations
         with np.errstate(invalid="ignore", divide="ignore"):
-            result = np.where(counts > 0, image / counts, np.nan)
+            result = np.where(counts > 0, image / weights, np.nan)
+
+        # Despeckle + resolution-match in RA: median filter with a kernel
+        # width matched to the dish's actual azimuth HPBW (~15 deg per its
+        # spec sheet), converted to pixels from the real RA bin width so
+        # it stays correct even if ra_bins changes. A single integration
+        # was never really a 1-degree-wide sample -- the antenna's own
+        # beam already smears it over roughly this much sky, so this is
+        # matching the map's resolution to the real instrument rather
+        # than picking an arbitrary smoothing amount.
+        if self.smooth_ra_kernel and self.smooth_ra_kernel > 1:
+            from scipy.ndimage import median_filter
+            k = self.smooth_ra_kernel
+            smoothed = result.copy()
+            for i_dec in range(self.dec_bins):
+                row = result[i_dec]
+                valid = np.isfinite(row)
+                if valid.sum() < k:
+                    continue
+                # Median-filter only the finite run(s); leave true gaps as NaN
+                filled = np.where(valid, row, np.nanmedian(row[valid]))
+                filtered = median_filter(filled, size=k, mode="nearest")
+                smoothed[i_dec] = np.where(valid, filtered, np.nan)
+            result = smoothed
 
         self._image  = result
         self._counts = counts
@@ -205,18 +261,34 @@ class SkyMap:
         fig, ax = plt.subplots(figsize=figsize, facecolor=DARK_BG)
         ax.set_facecolor(DARK_BG)
 
-        # Percentile clip for display
-        vmin = float(np.nanpercentile(image, 2))
-        vmax = float(np.nanpercentile(image, 98))
+        # Color scale from the noise floor, not a blind percentile clip --
+        # same approach already proven in cmd_stack_waterfall. Using the
+        # interquartile range as a robust noise estimate keeps a handful
+        # of very bright or very dark pixels from washing out the whole
+        # scale the way a plain 2nd/98th percentile can.
+        finite = image[np.isfinite(image)]
+        p25  = float(np.nanpercentile(finite, 25))
+        p75  = float(np.nanpercentile(finite, 75))
+        p99  = float(np.nanpercentile(finite, 99))
+        noise_sigma = (p75 - p25) / 1.35
+        vmin = -2.0 * noise_sigma
+        vmax = p99
+
+        # NaN (true no-data) gets its own distinct color so it's never
+        # confused with real-but-faint data at the dark end of the
+        # colormap (inferno's darkest values are nearly black, same as
+        # the plot background).
+        cmap_obj = plt.get_cmap(cmap).copy()
+        cmap_obj.set_bad(color="#324057")  # muted slate blue-grey
 
         im = ax.imshow(
             image,
             origin="lower",
             extent=[*self.ra_range, *self.dec_range],
             aspect="auto",
-            cmap=cmap,
+            cmap=cmap_obj,
             vmin=vmin, vmax=vmax,
-            interpolation="bilinear",
+            interpolation="nearest",
         )
 
         # Grid lines
