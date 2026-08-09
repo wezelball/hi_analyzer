@@ -310,22 +310,36 @@ def stack_obs_files(obs_files: list,
 # ---------------------------------------------------------------------------
 
 def estimate_tsys(obs_file,
-                  t_load_k: float = 290.0) -> np.ndarray:
+                  t_load_k: float = 290.0,
+                  t_sky_k: float = 15.0) -> np.ndarray:
     """
     Estimate system temperature from reference (50-ohm load) samples.
 
-    Using the Y-factor method:
-        T_sys = T_load / (P_ant/P_ref - 1)
+    Using the Y-factor method, with Y defined the way this code actually
+    computes it (Y = P_ant/P_ref):
+        Y = (T_sky + T_sys) / (T_load + T_sys)
 
-    This is a rough estimate — a proper Tsys measurement requires
-    observations of a source of known temperature (hot/cold load or
-    a calibrator source).
+    Solving for T_sys:
+        T_sys = (Y*T_load - T_sky) / (1 - Y)
+
+    NOTE: an earlier version of this function solved the algebra for the
+    opposite convention (Y = P_ref/P_ant, i.e. assuming the reference is
+    colder than the antenna). For this setup the sky is colder than the
+    290K reference load, so the actual ratio Y = P_ant/P_ref is always
+    < 1 -- the old formula's "if y > 1.0" guard silently discarded every
+    single estimate as a result. This is a rough estimate; a proper Tsys
+    measurement still requires observations of a source of known
+    temperature (hot/cold load or a calibrator source).
 
     Parameters
     ----------
     obs_file  : ObsFile
     t_load_k  : physical temperature of the 50-ohm load (K)
-                Assumes room temperature ≈ 290K
+                Assumes room temperature ~= 290K
+    t_sky_k   : assumed sky temperature (K), away from strong sources.
+                ~10-20K is typical for 21cm continuum + CMB away from
+                the galactic plane; adjust if you have a better estimate
+                for your specific pointing.
 
     Returns
     -------
@@ -334,11 +348,9 @@ def estimate_tsys(obs_file,
     tsys_estimates = []
     for pair in obs_file.pairs:
         ratio = pair.calibrated          # P_ant / P_ref per channel
-        # Y-factor: Y = P_ant/P_ref = (T_sky + T_sys) / (T_load + T_sys)
-        # Solving for T_sys at each channel, then take median
         y = np.nanmedian(ratio)
-        if y > 1.0:
-            tsys = t_load_k / (y - 1.0)
+        if 0 < y < 1.0:
+            tsys = (y * t_load_k - t_sky_k) / (1.0 - y)
         else:
             tsys = np.nan
         tsys_estimates.append(tsys)
