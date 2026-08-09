@@ -45,12 +45,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core.reader import load_file, load_files, group_by_elevation
 from core.calibration import (calibrate, flag_rfi, flag_persistent_rfi,
                                stack_spectra, stack_obs_files,
-                               sidereal_stack, estimate_tsys)
+                               sidereal_stack, estimate_tsys,
+                               continuum_lightcurve, flux_calibrate)
 from core.spectrum import (freq_to_velocity, assign_radec,
                            records_to_arrays, HI_REST_FREQ_MHZ)
 from ui.plots import (plot_spectrum, plot_waterfall,
                       plot_stacked_comparison, plot_tsys)
 from ui.skymap import SkyMap
+from ui.continuum import ContinuumLightCurve
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     p.add_argument("command",
-                   choices=["inspect", "spectrum", "waterfall", "stack", "stack-waterfall", "skymap"],
+                   choices=["inspect", "spectrum", "waterfall", "stack", "stack-waterfall", "skymap", "continuum"],
                    help="Analysis command to run")
 
     p.add_argument("files", nargs="+",
@@ -113,6 +115,22 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Sky map: dec smearing half-width per integration "
                         "(deg). Defaults to half this dish's elevation "
                         "HPBW (~25 deg). Widen/narrow if you change dishes.")
+
+    # Continuum (total power) options
+    p.add_argument("--source-name", type=str, default=None,
+                   help="Label for the continuum plot title, e.g. 'Cas A'")
+    p.add_argument("--edge-frac", type=float, default=0.1,
+                   help="Continuum: fraction of band edges excluded from "
+                        "the broadband average (edge roll-off is "
+                        "instrumental, not sky signal)")
+    p.add_argument("--tsys-k", type=float, default=None,
+                   help="Continuum: system temperature (K) for flux "
+                        "calibration. If not given, estimated automatically "
+                        "from this file's own reference-load levels.")
+    p.add_argument("--aperture-m2", type=float, default=0.283,
+                   help="Continuum: effective aperture (m^2) for flux "
+                        "calibration. Default matches the 100x60cm "
+                        "Nooelec wire-grid dish at ~60%% efficiency.")
 
     return p
 
@@ -620,6 +638,58 @@ def cmd_skymap(obs_files, args) -> None:
         smap.show()
 
 
+def cmd_continuum(obs_files, args) -> None:
+    """
+    Build a total-power (continuum) light curve to detect bright compact
+    sources -- Cas A, Cyg A, Tau A, the Sun, etc. -- as they transit the
+    beam. Unlike the HI commands, this does NOT remove the DC level of
+    the calibrated ratio: the DC level rising as a source transits IS
+    the signal.
+    """
+    import numpy as np
+
+    all_times, all_ra, all_values = [], [], []
+
+    for obs in obs_files:
+        print(f"\n{obs.path.name}: {obs.header}")
+
+        values = continuum_lightcurve(obs, edge_frac=args.edge_frac,
+                                       flag=not args.no_flag,
+                                       sigma_threshold=args.sigma)
+        records = assign_radec(obs)
+
+        tsys_k = args.tsys_k
+        if tsys_k is None:
+            tsys_arr = estimate_tsys(obs)
+            valid = tsys_arr[np.isfinite(tsys_arr)]
+            tsys_k = float(np.median(valid)) if valid.size else 400.0
+            print(f"  Auto-estimated Tsys: {tsys_k:.1f} K")
+        else:
+            print(f"  Using supplied Tsys: {tsys_k:.1f} K")
+
+        for rec, v in zip(records, values):
+            all_times.append(rec.timestamp)
+            all_ra.append(rec.ra_deg)
+            all_values.append(v)
+
+    lc = ContinuumLightCurve(
+        all_times, all_ra, all_values,
+        source_name=args.source_name,
+        tsys_k=tsys_k,
+        aperture_m2=args.aperture_m2,
+    )
+    lc.process()
+
+    print(f"\nBaseline (20th pct): {lc.baseline:.5f}")
+    print(f"Peak: RA={lc.peak_ra:.1f}°  value={lc.peak_value:.5f}  "
+          f"implied flux ≈ {lc.peak_flux_jy:.0f} Jy")
+
+    if args.save:
+        lc.save(args.save, dpi=args.dpi)
+    else:
+        lc.show()
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -667,6 +737,8 @@ def main(argv=None) -> None:
         cmd_stack_waterfall(obs_files, args)
     elif cmd == "skymap":
         cmd_skymap(obs_files, args)
+    elif cmd == "continuum":
+        cmd_continuum(obs_files, args)
 
 
 if __name__ == "__main__":

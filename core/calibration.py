@@ -358,7 +358,120 @@ def estimate_tsys(obs_file,
     return np.array(tsys_estimates)
 
 
-def rms_noise(spectrum: np.ndarray) -> float:
+# ---------------------------------------------------------------------------
+# Continuum (total power) light curves
+# ---------------------------------------------------------------------------
+
+def continuum_lightcurve(obs_file, edge_frac: float = 0.1,
+                          exclude_hi_line: bool = True,
+                          hi_line_frac: float = 0.34,
+                          flag: bool = True,
+                          sigma_threshold: float = 4.0) -> np.ndarray:
+    """
+    Build a total-power (broadband continuum) light curve from a single
+    drift-scan observation, for detecting bright compact sources as they
+    transit the beam -- Cas A, Cyg A, Tau A, the Sun, etc.
+
+    This is deliberately different from the HI spectral-line pipeline:
+    it does NOT apply per-row DC-offset removal or bandpass shape
+    correction. For HI work the DC level is a nuisance to remove so the
+    tiny (~1-2%) line signal is visible; for continuum work the DC level
+    of the calibrated ratio (P_ant/P_ref) IS the signal -- it rises when
+    a strong source enters the beam and falls when it leaves. Removing
+    it would remove exactly what you're trying to measure.
+
+    IMPORTANT: the galactic HI line itself varies strongly with RA/Dec
+    (that's the whole HI sky map), and its excess power is typically
+    LARGER than a compact continuum source's signal. If it's left in
+    the average, it swamps and can easily be mistaken for a genuine
+    continuum detection. By default the middle hi_line_frac of the band
+    (where the HI line lives, same region excluded from the bandpass
+    fit elsewhere in this codebase) is excluded, leaving only genuinely
+    line-free channels for the continuum estimate.
+
+    Channel-level RFI flagging is still safe to apply here: a genuine
+    continuum source raises ALL channels together (it's broadband), so
+    it doesn't look like an outlier relative to a smooth per-row
+    baseline the way narrowband RFI does, and won't get flagged.
+
+    Parameters
+    ----------
+    obs_file        : ObsFile from reader.load_file()
+    edge_frac       : fraction of channels at each band edge to exclude
+                       from the average (edge roll-off is instrumental,
+                       not sky signal)
+    exclude_hi_line : also exclude the middle hi_line_frac of the band,
+                       where real HI emission lives. Strongly recommended
+                       -- only disable if you specifically want the
+                       combined HI+continuum power for some reason.
+    hi_line_frac    : fraction of the band (centered on the middle)
+                       excluded as the HI line region
+    flag            : apply channel-level RFI flagging before averaging
+    sigma_threshold : RFI flagging threshold in sigma
+
+    Returns
+    -------
+    np.ndarray of shape (n_pairs,) -- broadband-averaged ratio per
+    integration, in the same units as the calibrated ratio (P_ant/P_ref,
+    dimensionless). NaN for any integration with no valid channels.
+    """
+    cal = calibrate(obs_file, subtract_baseline=False)
+    if flag:
+        cal = flag_rfi(cal, sigma_threshold=sigma_threshold)
+        cal = flag_persistent_rfi(cal)
+
+    n_chan = cal.shape[1]
+    n_edge = max(1, int(n_chan * edge_frac))
+    band_mask = np.ones(n_chan, dtype=bool)
+    band_mask[:n_edge] = False
+    band_mask[-n_edge:] = False
+
+    if exclude_hi_line:
+        half_width = int(n_chan * hi_line_frac / 2)
+        mid = n_chan // 2
+        band_mask[mid - half_width: mid + half_width] = False
+
+    with np.errstate(invalid="ignore"):
+        return np.nanmean(cal[:, band_mask], axis=1)
+
+
+def flux_calibrate(values: np.ndarray, baseline: float,
+                    tsys_k: float, aperture_m2: float,
+                    t_load_k: float = 290.0) -> np.ndarray:
+    """
+    Convert a continuum light curve (raw P_ant/P_ref ratio) into an
+    implied flux density in Jy, relative to a given off-source baseline.
+
+    Derivation: with Y = P_ant/P_ref = (T_sky+T_sys)/(T_load+T_sys),
+    a source contributing extra antenna temperature dT above the
+    baseline shows up as dY = dT / (T_load+T_sys). A point source of
+    flux density S contributes dT = S*A_eff/(2k). Combining:
+
+        S = (Y - baseline) * (T_load + T_sys) * 2k / A_eff
+
+    This assumes the source is unresolved (smaller than the beam) and
+    that aperture_m2 is the EFFECTIVE aperture (physical area x
+    aperture efficiency), not the physical dish area.
+
+    Parameters
+    ----------
+    values      : light curve, shape (n,), raw ratio units
+    baseline    : off-source reference ratio (e.g. from the quiet part
+                  of the same scan)
+    tsys_k      : system temperature (K)
+    aperture_m2 : effective aperture (m^2)
+    t_load_k    : reference load temperature (K)
+
+    Returns
+    -------
+    np.ndarray of shape (n,) -- implied flux density in Jy
+    """
+    k = 1.380649e-23  # Boltzmann constant, J/K
+    dT = (values - baseline) * (t_load_k + tsys_k)
+    S_W = dT * 2.0 * k / aperture_m2       # W / m^2 / Hz
+    return S_W / 1e-26                      # Jy
+
+
     """
     Estimate the RMS noise in a spectrum from the edge channels
     (assumed to contain only noise, no HI signal).
