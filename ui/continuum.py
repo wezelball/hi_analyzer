@@ -74,6 +74,8 @@ class ContinuumLightCurve:
         tsys_k: float = 400.0,
         aperture_m2: float = 0.283,
         t_load_k: float = 290.0,
+        expected_source_ra: Optional[float] = None,
+        exclusion_halfwidth_deg: Optional[float] = None,
     ):
         self.times   = list(times)
         self.ra_deg  = np.asarray(ra_deg, dtype=float)
@@ -82,6 +84,17 @@ class ContinuumLightCurve:
         self.tsys_k     = tsys_k
         self.aperture_m2 = aperture_m2
         self.t_load_k    = t_load_k
+        # If you know where the source SHOULD be (e.g. from its catalog
+        # RA), pass it here. This switches to trend-aware detection：fit
+        # a smooth baseline from data OUTSIDE this region, then test
+        # whether the region around expected_source_ra is significantly
+        # above that trend -- rather than just reporting wherever the
+        # highest point happens to be, which is easily fooled by slow
+        # gain drift over the course of a scan (a real risk for total
+        # power measurements, since -- unlike the HI pipeline -- the DC
+        # level can't be removed without removing the signal itself).
+        self.expected_source_ra = expected_source_ra
+        self.exclusion_halfwidth_deg = exclusion_halfwidth_deg or (az_hpbw_deg / 2.0)
 
         if smooth_kernel is None:
             # Estimate sample cadence from the timestamps to convert the
@@ -100,6 +113,9 @@ class ContinuumLightCurve:
         self._smoothed: Optional[np.ndarray] = None
         self._baseline: Optional[float] = None
         self._peak_idx: Optional[int] = None
+        self._trend: Optional[np.ndarray] = None
+        self._snr: Optional[float] = None
+        self._detection_value: Optional[float] = None
 
     # ------------------------------------------------------------------
     # Processing
@@ -109,6 +125,14 @@ class ContinuumLightCurve:
         """
         Despeckle the raw light curve (median filter, matched to the
         real beam width) and estimate an off-source baseline.
+
+        If expected_source_ra was given, ALSO fits a smooth trend from
+        data outside the expected source region and tests whether that
+        region is significantly above the trend (self.snr). This is the
+        honest way to check for a specific known source -- it doesn't
+        get fooled by slow drift over the scan, and it tells you when a
+        result is NOT statistically significant rather than just
+        reporting the highest point as if it were a detection.
 
         Returns
         -------
@@ -124,17 +148,72 @@ class ContinuumLightCurve:
             smoothed = np.where(valid, smoothed, np.nan)
         else:
             smoothed = values
-
-        # Baseline: bottom 20th percentile, i.e. assume most of the scan
-        # is off-source and only a modest fraction (near the transit) is
-        # elevated. Reasonable for a single ~1-hour-wide transit inside
-        # a ~24-hour scan.
-        finite = smoothed[np.isfinite(smoothed)]
-        self._baseline = float(np.percentile(finite, 20)) if finite.size else np.nan
-        self._peak_idx = int(np.nanargmax(smoothed)) if finite.size else None
-
         self._smoothed = smoothed
+
+        if self.expected_source_ra is not None:
+            self._process_trend_aware(values, valid)
+        else:
+            # Simple mode (no known target): bottom 20th percentile as
+            # baseline. Fine for exploratory scans; for a specific known
+            # source, pass expected_source_ra instead.
+            finite = smoothed[np.isfinite(smoothed)]
+            self._baseline = float(np.percentile(finite, 20)) if finite.size else np.nan
+            self._peak_idx = int(np.nanargmax(smoothed)) if finite.size else None
+
         return smoothed
+
+    def _process_trend_aware(self, values: np.ndarray, valid: np.ndarray) -> None:
+        near_source = np.abs(self.ra_deg - self.expected_source_ra) < self.exclusion_halfwidth_deg
+        fit_mask = valid & ~near_source
+
+        if fit_mask.sum() < 5:
+            # Not enough off-source data to fit a trend; fall back to a
+            # flat baseline (median of everything outside the exclusion
+            # zone, or everything if that's also too small)
+            ref = valid & ~near_source if (valid & ~near_source).sum() >= 3 else valid
+            trend_const = float(np.median(values[ref])) if ref.sum() else np.nan
+            self._trend = np.full_like(values, trend_const)
+        else:
+            coeffs = np.polyfit(self.ra_deg[fit_mask], values[fit_mask], 2)
+            self._trend = np.polyval(coeffs, self.ra_deg)
+
+        residual = values - self._trend
+        noise_std = float(np.nanstd(residual[fit_mask])) if fit_mask.sum() >= 5 else np.nan
+
+        in_zone = valid & near_source
+        n_in_zone = int(in_zone.sum())
+        mean_residual = float(np.nanmean(residual[in_zone])) if n_in_zone else np.nan
+
+        # SNR of the AVERAGE residual within the expected source region,
+        # not of any single sample -- averaging n_in_zone independent-ish
+        # samples reduces the noise by roughly sqrt(n_in_zone), same
+        # logic as everywhere else in this codebase.
+        if np.isfinite(noise_std) and noise_std > 0 and n_in_zone > 0:
+            self._snr = mean_residual / (noise_std / np.sqrt(n_in_zone))
+        else:
+            self._snr = np.nan
+
+        self._detection_value = mean_residual
+        # baseline for flux_calibrate purposes: local trend value AT the
+        # expected source RA (not a flat percentile, since we've already
+        # detrended)
+        self._baseline = float(np.polyval(np.polyfit(self.ra_deg[fit_mask], values[fit_mask], 2),
+                                           self.expected_source_ra)) if fit_mask.sum() >= 5 else np.nan
+        self._peak_idx = int(np.argmin(np.abs(self.ra_deg - self.expected_source_ra))) if n_in_zone else None
+
+    @property
+    def snr(self) -> float:
+        """Detection significance (only meaningful if expected_source_ra was given)."""
+        if self._smoothed is None:
+            self.process()
+        return self._snr if self._snr is not None else np.nan
+
+    @property
+    def detection_value(self) -> float:
+        """Mean residual (raw ratio units) within the expected source region."""
+        if self._smoothed is None:
+            self.process()
+        return self._detection_value if self._detection_value is not None else np.nan
 
     @property
     def baseline(self) -> float:
@@ -162,9 +241,22 @@ class ContinuumLightCurve:
 
     @property
     def peak_flux_jy(self) -> float:
-        """Implied flux density (Jy) of the peak, above baseline."""
+        """
+        Implied flux density (Jy), above baseline.
+
+        In trend-aware mode (expected_source_ra given), this uses the
+        mean residual across the whole expected source region rather
+        than a single peak sample -- much less sensitive to one noisy
+        point, and it's what self.snr's significance actually refers to.
+        Check self.snr before trusting this as a real detection rather
+        than noise.
+        """
         from core.calibration import flux_calibrate
-        s = flux_calibrate(np.array([self.peak_value]), self.baseline,
+        if self.expected_source_ra is not None:
+            value = self.detection_value + self.baseline
+        else:
+            value = self.peak_value
+        s = flux_calibrate(np.array([value]), self.baseline,
                             self.tsys_k, self.aperture_m2, self.t_load_k)
         return float(s[0])
 
@@ -192,17 +284,36 @@ class ContinuumLightCurve:
         ax.plot(ra_sorted, smooth_sorted, color=LINE_COLOR, linewidth=1.6,
                 label=f"smoothed (kernel={self.smooth_kernel})")
 
-        if self.baseline is not None and np.isfinite(self.baseline):
-            ax.axhline(y=self.baseline, color=GRID_COLOR, linewidth=0.8,
-                       linestyle="--", label="baseline (20th pct)")
+        if self.expected_source_ra is not None:
+            trend_sorted = self._trend[order]
+            ax.plot(ra_sorted, trend_sorted, color=GRID_COLOR, linewidth=1.0,
+                    linestyle="--", label="fitted trend (off-source)")
+            lo = self.expected_source_ra - self.exclusion_halfwidth_deg
+            hi = self.expected_source_ra + self.exclusion_halfwidth_deg
+            ax.axvspan(lo, hi, color=PEAK_COLOR, alpha=0.08)
+            ax.axvline(x=self.expected_source_ra, color=PEAK_COLOR,
+                       linewidth=0.8, linestyle=":", alpha=0.8)
 
-        if self._peak_idx is not None:
-            ax.axvline(x=self.peak_ra, color=PEAK_COLOR, linewidth=0.8,
-                       linestyle=":", alpha=0.8)
-            label = (f"peak: RA={self.peak_ra:.1f}°  "
-                     f"S≈{self.peak_flux_jy:.0f} Jy")
+            snr = self.snr
+            sig_word = "SIGNIFICANT" if np.isfinite(snr) and abs(snr) >= 3 else "not significant"
+            label = (f"{self.source_name or 'source'} region: "
+                     f"SNR={snr:.1f} ({sig_word})\n"
+                     f"implied ΔS ≈ {self.peak_flux_jy:.0f} Jy")
             ax.text(0.02, 0.95, label, transform=ax.transAxes,
                     color=PEAK_COLOR, fontsize=10, va="top")
+        else:
+            if self.baseline is not None and np.isfinite(self.baseline):
+                ax.axhline(y=self.baseline, color=GRID_COLOR, linewidth=0.8,
+                           linestyle="--", label="baseline (20th pct)")
+            if self._peak_idx is not None:
+                ax.axvline(x=self.peak_ra, color=PEAK_COLOR, linewidth=0.8,
+                           linestyle=":", alpha=0.8)
+                label = (f"peak: RA={self.peak_ra:.1f}°  "
+                         f"S≈{self.peak_flux_jy:.0f} Jy\n"
+                         f"(no expected_source_ra given -- this is just "
+                         f"the highest point, not a tested detection)")
+                ax.text(0.02, 0.95, label, transform=ax.transAxes,
+                        color=PEAK_COLOR, fontsize=9, va="top")
 
         ax.set_xlabel("Right Ascension (°)", color=TEXT_COLOR, fontsize=10)
         ax.set_ylabel("P_ant / P_ref (broadband)", color=TEXT_COLOR, fontsize=10)

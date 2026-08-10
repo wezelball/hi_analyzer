@@ -131,6 +131,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Continuum: effective aperture (m^2) for flux "
                         "calibration. Default matches the 100x60cm "
                         "Nooelec wire-grid dish at ~60%% efficiency.")
+    p.add_argument("--source-ra", type=float, default=None,
+                   help="Continuum: expected RA (deg) of a known target "
+                        "source (e.g. Cyg A = 299.87). If given, switches "
+                        "to trend-aware detection with a real significance "
+                        "test (SNR), instead of just reporting the highest "
+                        "point in the scan -- strongly recommended when "
+                        "you know what you're looking for.")
 
     return p
 
@@ -645,10 +652,16 @@ def cmd_continuum(obs_files, args) -> None:
     beam. Unlike the HI commands, this does NOT remove the DC level of
     the calibrated ratio: the DC level rising as a source transits IS
     the signal.
+
+    Accepts multiple files (e.g. several nights at the same pointing) and
+    combines them into a single light curve, the same stacking approach
+    already used for the sky map -- averaging down noise by roughly
+    sqrt(N_nights).
     """
     import numpy as np
 
     all_times, all_ra, all_values = [], [], []
+    all_tsys = []
 
     for obs in obs_files:
         print(f"\n{obs.path.name}: {obs.header}")
@@ -658,31 +671,58 @@ def cmd_continuum(obs_files, args) -> None:
                                        sigma_threshold=args.sigma)
         records = assign_radec(obs)
 
-        tsys_k = args.tsys_k
-        if tsys_k is None:
+        if args.tsys_k is None:
             tsys_arr = estimate_tsys(obs)
             valid = tsys_arr[np.isfinite(tsys_arr)]
-            tsys_k = float(np.median(valid)) if valid.size else 400.0
-            print(f"  Auto-estimated Tsys: {tsys_k:.1f} K")
-        else:
-            print(f"  Using supplied Tsys: {tsys_k:.1f} K")
+            if valid.size:
+                all_tsys.extend(valid.tolist())
+                print(f"  This file's median Tsys: {np.median(valid):.1f} K "
+                      f"({valid.size} valid integrations)")
 
         for rec, v in zip(records, values):
             all_times.append(rec.timestamp)
             all_ra.append(rec.ra_deg)
             all_values.append(v)
 
+    if args.tsys_k is not None:
+        tsys_k = args.tsys_k
+        print(f"\nUsing supplied Tsys: {tsys_k:.1f} K")
+    elif all_tsys:
+        tsys_k = float(np.median(all_tsys))
+        print(f"\nCombined Tsys across all {len(obs_files)} file(s): "
+              f"{tsys_k:.1f} K (median of {len(all_tsys)} integrations)")
+    else:
+        tsys_k = 400.0
+        print(f"\nNo valid Tsys estimates -- falling back to default {tsys_k:.1f} K")
+
     lc = ContinuumLightCurve(
         all_times, all_ra, all_values,
         source_name=args.source_name,
         tsys_k=tsys_k,
         aperture_m2=args.aperture_m2,
+        expected_source_ra=args.source_ra,
     )
     lc.process()
 
-    print(f"\nBaseline (20th pct): {lc.baseline:.5f}")
-    print(f"Peak: RA={lc.peak_ra:.1f}°  value={lc.peak_value:.5f}  "
-          f"implied flux ≈ {lc.peak_flux_jy:.0f} Jy")
+    print(f"\n{'='*60}")
+    print(f"Combined: {len(obs_files)} file(s), {len(all_values)} total integrations")
+    if args.source_ra is not None:
+        sig = "SIGNIFICANT (>=3 sigma)" if np.isfinite(lc.snr) and abs(lc.snr) >= 3 else "not significant"
+        print(f"Target: {args.source_name or 'source'} at RA={args.source_ra:.2f} deg")
+        print(f"SNR: {lc.snr:.2f}  ({sig})")
+        print(f"Implied flux: {lc.peak_flux_jy:.0f} Jy")
+        if np.isfinite(lc.snr) and abs(lc.snr) < 3:
+            print("Not a confirmed detection with this data -- consider "
+                  "adding more nights to improve SNR (stack more files "
+                  "the same way this command already combines them).")
+    else:
+        print(f"Baseline (20th pct): {lc.baseline:.5f}")
+        print(f"Peak: RA={lc.peak_ra:.1f}°  value={lc.peak_value:.5f}  "
+              f"implied flux ≈ {lc.peak_flux_jy:.0f} Jy")
+        print("(No --source-ra given -- this is just the highest point, "
+              "not a statistically tested detection. Pass --source-ra "
+              "for a real significance test.)")
+    print(f"{'='*60}")
 
     if args.save:
         lc.save(args.save, dpi=args.dpi)
